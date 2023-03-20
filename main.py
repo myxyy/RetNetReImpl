@@ -47,7 +47,7 @@ class Lang(pl.LightningModule):
         else:
             x_hat = self.token_out(self.hyena(self.token_in(x)))
         loss = nn.CrossEntropyLoss()(x_hat.view(-1,self.vocab_size), x_next.view(-1).long())
-        self.log("train_loss", loss, on_epoch=False)
+        self.log("train_loss", loss, on_epoch=False, prog_bar=True)
         return loss
 
     def forward(self, x):
