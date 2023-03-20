@@ -1,0 +1,5 @@
+*.txt
+__pycache__
+lightning_logs*
+log*
+*.pth
