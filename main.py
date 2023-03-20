@@ -63,5 +63,6 @@ class Lang(pl.LightningModule):
 model = Lang(
     Hyena,
     1024,
+    dim=256,
     depth=16,
 )

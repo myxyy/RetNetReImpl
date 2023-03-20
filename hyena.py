@@ -13,11 +13,14 @@ class HyenaBlock(nn.Module):
         self.a = nn.Parameter(torch.randn(1))
         self.pos = PositionalEncoding(len, dim_pos)
         self.linear_pos = nn.Linear(dim_pos, dim, bias=False)
-        self.linear = nn.Linear(dim, dim, bias=False)
+        self.linear_1 = nn.Linear(dim, dim*2, bias=False)
+        self.gelu = nn.GELU()
+        self.linear_2 = nn.Linear(dim*2, dim, bias=False)
         self.dropout = nn.Dropout(dropout)
+        self.layer_norm = nn.LayerNorm(dim)
     # (batch, len, dim), (batch, len, dim) -> (batch, len, dim)
     def forward(self, z, x):
-        z = self.dropout(z)
+        z = self.layer_norm(z)
         fz = fft.rfft(z,n=self.len*2,dim=1) # (batch, len*2, dim)
         expa = torch.exp(self.a)
         window = torch.exp(-torch.arange(self.len, device='cuda')*expa) # (len)
@@ -25,9 +28,11 @@ class HyenaBlock(nn.Module):
         wfh = fft.rfft(window.unsqueeze(-1)*h,n=self.len*2,dim=0) # (len*2, dim)
         wfhfz = wfh*fz
         cwhz = fft.irfft(wfhfz,dim=1).narrow(1,0,self.len)
-        x = self.linear(x)
+        x = self.linear_1(x)
+        x = self.gelu(x)
+        x = self.linear_2(x)
         x = self.dropout(x)
-        return x*cwhz
+        return x*cwhz + z
 
 class Hyena(nn.Module):
     def __init__(self, len: int, dim: int, depth: int, dim_pos: int, dropout: float):
