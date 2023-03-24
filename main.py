@@ -51,10 +51,13 @@ class Lang(pl.LightningModule):
         return loss
 
     def forward(self, x):
-        x = nn.functional.one_hot(x, self.vocab_size).float()
+        x = nn.functional.one_hot(x.long(), self.vocab_size).float()
         x_hat = self.token_out(self.hyena(self.token_in(x)))
         x_hat = x_hat.softmax(2)
         return x_hat
+
+    def training_epoch_end(self, outputs):
+        torch.save(self.state_dict(), 'weight.ckpt')
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=0.0001)
