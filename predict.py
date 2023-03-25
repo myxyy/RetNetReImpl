@@ -11,7 +11,7 @@ length = model.len
 vocab_size = model.vocab_size
 model = model.cuda()
 
-print(f"#parameter:{sum(p.numel() for p in model.parameters() if p.requires_grad)}")
+print(f"#parameter:{model.num_parameters}")
 
 def predict(prompt):
     prompt = torch.from_numpy(np.array([i for i in prompt.encode('utf-8')]).astype(int)).clone().cuda()

@@ -44,7 +44,8 @@ class HyenaBlock(nn.Module):
         y = self.linear_3(y)
         y = self.gelu(y)
         y = self.linear_4(y)
-        return y + x
+        y = y + x
+        return y
 
 class Hyena(nn.Module):
     def __init__(self, len: int, dim: int, depth: int, dim_pos: int, dropout: float):

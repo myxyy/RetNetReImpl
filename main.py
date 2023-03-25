@@ -10,7 +10,7 @@ from pytorch_lightning.loggers import TensorBoardLogger
 
 class Lang(pl.LightningModule):
     logger: TensorBoardLogger
-    def __init__(self, model, len, depth=4, dropout=0.1, vocab_size=256, dim=256, dim_pos=256, enable_profiling=False):
+    def __init__(self, model, len, depth=4, dropout=0.1, vocab_size=256, dim=256, dim_pos=256, enable_profiling=False, batch_size=16):
         super().__init__()
         self.save_hyperparameters()
         self.enable_profiling=enable_profiling
@@ -19,6 +19,7 @@ class Lang(pl.LightningModule):
         self.hyena = model(len, dim, depth, dim_pos, dropout)
         self.token_in = nn.Linear(vocab_size, dim)
         self.token_out = nn.Linear(dim, vocab_size)
+        self.batch_size = batch_size
         self.num_parameters = sum(p.numel() for p in self.parameters() if p.requires_grad)
         self.apply(self._init_weights)
 
@@ -56,9 +57,6 @@ class Lang(pl.LightningModule):
         x_hat = x_hat.softmax(2)
         return x_hat
 
-    def training_epoch_end(self, outputs):
-        torch.save(self.state_dict(), 'weight.ckpt')
-
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=0.0001)
         return optimizer
@@ -68,4 +66,5 @@ model = Lang(
     1024,
     dim=256,
     depth=16,
+    batch_size=16,
 )
