@@ -23,7 +23,7 @@ class ResidualLayerNormFFN(nn.Module):
         return x
 
 class HyenaBaseBlock(nn.Module):
-    def __init__(self, len_in: int, len_out: int, dim_in: int, dim_out: int, dim_pos: int, dropout: float, z_residual=False):
+    def __init__(self, len_in: int, len_out: int, dim_in: int, dim_out: int, dim_pos: int, dropout: float, z_residual=False, positional_encoding=None):
         super().__init__()
         self.dim_in = dim_in
         self.dim_out = dim_out
@@ -32,7 +32,9 @@ class HyenaBaseBlock(nn.Module):
             assert("z_residual can be True only if dim_in == dim_outand len_in == len_out")
         if (self.dim_in != self.dim_out):
             self.linear_in = nn.Linear(dim_in, dim_out, bias=True)
-        self.pos = PositionalEncoding(len_in, dim_pos)
+        if positional_encoding is None:
+            positional_encoding = PositionalEncoding(len_in, dim_pos)
+        self.pos = positional_encoding
         self.linear_pos_1 = nn.Linear(dim_pos, dim_pos+dim_out, bias=True)
         self.linear_pos_2 = nn.Linear(dim_pos+dim_out, dim_out, bias=True)
         self.act = nn.SiLU()
@@ -48,7 +50,7 @@ class HyenaBaseBlock(nn.Module):
         if (self.dim_in != self.dim_out):
             zn = self.linear_in(zn)
         fz = fft.rfft(zn,n=self.len_in*2,dim=1) # (batch, len_in*2, dim_out)
-        h = self.linear_pos_1(self.pos.pe)
+        h = self.linear_pos_1(self.pos())
         h = self.act(h)
         h = self.linear_pos_2(h)
         h = self.dropout(h)
@@ -69,13 +71,15 @@ class HyenaBaseBlock(nn.Module):
         return y
  
 class HyenaBlock(HyenaBaseBlock):
-    def __init__(self, len: int, dim: int, dim_pos: int, dropout: float):
-        super().__init__(len, len, dim, dim, dim_pos, dropout, z_residual=True)
+    def __init__(self, len: int, dim: int, dim_pos: int, dropout: float, positional_encoding=None):
+        super().__init__(len, len, dim, dim, dim_pos, dropout, z_residual=True, positional_encoding=positional_encoding)
 
 class Hyena(nn.Module):
-    def __init__(self, len: int, dim: int, depth: int, dim_pos: int, dropout: float):
+    def __init__(self, len: int, dim: int, depth: int, dim_pos: int, dropout: float, positional_encoding=None):
         super().__init__()
-        block = HyenaBlock(len, dim, dim_pos, dropout)
+        if positional_encoding is None:
+            positional_encoding = PositionalEncoding(len, dim_pos)
+        block = HyenaBlock(len, dim, dim_pos, dropout, positional_encoding=positional_encoding)
         self.block_list = nn.ModuleList([copy.deepcopy(block) for _ in range(depth)])
         self.rlnffn = ResidualLayerNormFFN(dim, 2, dropout)
     # (batch, len, dim) -> (batch, len, dim)
