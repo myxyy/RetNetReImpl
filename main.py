@@ -1,4 +1,4 @@
-from hyena import Hyena
+from hyena import HyenaUet
 
 import pytorch_lightning as pl
 from timm.models.layers import trunc_normal_
@@ -10,13 +10,13 @@ from pytorch_lightning.loggers import TensorBoardLogger
 
 class Lang(pl.LightningModule):
     logger: TensorBoardLogger
-    def __init__(self, model, len, depth=4, dropout=0.1, vocab_size=256, dim=256, dim_pos=256, enable_profiling=False, batch_size=16):
+    def __init__(self, model, len=1024, downsample_rate=0.5, depth_unet=10, depth_hyena=4, dropout=0.1, vocab_size=256, dim=256, dim_scale=1, dim_pos=256, batch_size=16, enable_pre=True, enable_middle=True, enable_post=True, enable_profiling=False):
         super().__init__()
         self.save_hyperparameters()
         self.enable_profiling=enable_profiling
         self.len = len
         self.vocab_size = vocab_size
-        self.hyena = model(len, dim, depth, dim_pos, dropout)
+        self.hyena = model(len, downsample_rate, depth_unet, depth_hyena, dim, dim_scale, dim_pos, dropout, enable_pre=enable_pre, enable_middle=enable_middle, enable_post=enable_post)
         self.token_in = nn.Linear(vocab_size, dim)
         self.token_out = nn.Linear(dim, vocab_size)
         self.batch_size = batch_size
@@ -62,9 +62,10 @@ class Lang(pl.LightningModule):
         return optimizer
 
 model = Lang(
-    Hyena,
-    1024,
+    HyenaUet,
+    len=1024,
     dim=256,
-    depth=16,
+    depth_unet=10,
+    depth_hyena=1,
     batch_size=16,
 )

@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.fft as fft
 import copy
+import math
 from positional_encoding import PositionalEncoding
 
 class ResidualLayerNormFFN(nn.Module):
@@ -32,6 +33,7 @@ class HyenaBaseBlock(nn.Module):
             assert("z_residual can be True only if dim_in == dim_outand len_in == len_out")
         if (self.dim_in != self.dim_out):
             self.linear_in = nn.Linear(dim_in, dim_out, bias=True)
+            self.layer_norm_in = nn.LayerNorm(dim_in)
         if positional_encoding is None:
             positional_encoding = PositionalEncoding(len_in, dim_pos)
         self.pos = positional_encoding
@@ -46,17 +48,19 @@ class HyenaBaseBlock(nn.Module):
         self.rlnffn_1 = ResidualLayerNormFFN(dim_out, 2, dropout)
         self.rlnffn_2 = ResidualLayerNormFFN(dim_out, 2, dropout)
     def forward(self, z, x):
-        zn = self.layer_norm(z)
         if (self.dim_in != self.dim_out):
+            zn = self.layer_norm_in(z)
             zn = self.linear_in(zn)
-        fz = fft.rfft(zn,n=self.len_in*2,dim=1) # (batch, len_in*2, dim_out)
+        else:
+            zn = self.layer_norm(z)
+        fz = fft.rfft(zn,n=self.len_in*2,dim=1) # (batch, ?, dim_out)
         h = self.linear_pos_1(self.pos())
         h = self.act(h)
         h = self.linear_pos_2(h)
         h = self.dropout(h)
         expa = torch.exp(self.a)
         window = torch.exp(-torch.arange(self.len_in, device='cuda')*expa) # (len_in)
-        wfh = fft.rfft(window.unsqueeze(-1)*h,n=self.len_in*2,dim=0) # (len_in*2, dim_out)
+        wfh = fft.rfft(window.unsqueeze(-1)*h,n=self.len_in*2,dim=0) # (?, dim_out)
         wfhfz = wfh*fz
         cwhz = fft.irfft(wfhfz,dim=1).narrow(1,0,self.len_in) # (batch, len_in, dim_out)
         if self.len_in == self.len_out:
@@ -88,3 +92,55 @@ class Hyena(nn.Module):
         for block in self.block_list:
             z = block(z, v)
         return z
+
+class HyenaCross(nn.Module):
+    def __init__(self, len_in: int, len_out: int, dim_in: int, dim_out: int, depth: int, dim_pos: int, dropout: float, positional_encoding=None):
+        super().__init__()
+        if positional_encoding is None:
+            positional_encoding = PositionalEncoding(len_in, dim_pos)
+        block = HyenaBaseBlock(len_in, len_out, dim_in, dim_out, dim_pos, dropout, positional_encoding=positional_encoding)
+        self.block_list = nn.ModuleList([copy.deepcopy(block) for _ in range(depth)])
+    def forward(self, z, x):
+        for block in self.block_list:
+            z = block(z, x)
+        return z
+
+class HyenaUet(nn.Module):
+    def __init__(self, len: int, downsample_rate: float, depth_unet: int, depth_hyena: int, dim: int, dim_scale: float, dim_pos: int, dropout: int, enable_pre=True, enable_middle=True, enable_post=True):
+        super().__init__()
+        self.depth_unet = depth_unet
+        self.enable_pre = enable_pre
+        self.enable_middle = enable_middle
+        self.enable_post = enable_post
+        def level_i_dim(i):
+            return (int)(math.ceil(dim*(dim_scale**i)/2)*2)
+        def level_i_len(i):
+            return (int)(len*(downsample_rate**i))
+        self.positional_encoding_hyena_list = nn.ModuleList([PositionalEncoding(level_i_len(i),dim_pos) for i in range(depth_unet+1)])
+        self.positional_encoding_in_list = nn.ModuleList([PositionalEncoding(level_i_len(i),level_i_dim(i)) for i in range(depth_unet+1)])
+        self.encoder_list = nn.ModuleList([HyenaCross(level_i_len(i),level_i_len(i+1),level_i_dim(i),level_i_dim(i+1),depth_hyena,dim_pos,dropout,self.positional_encoding_hyena_list[i]) for i in range(depth_unet)])
+        self.decoder_list = nn.ModuleList([HyenaCross(level_i_len(i+1),level_i_len(i),level_i_dim(i+1),level_i_dim(i),depth_hyena,dim_pos,dropout,self.positional_encoding_hyena_list[i+1]) for i in range(depth_unet)])
+        if enable_pre:
+            self.hyena_pre_list = nn.ModuleList([Hyena(level_i_len(i),level_i_dim(i),depth_hyena,dim_pos,dropout,self.positional_encoding_hyena_list[i]) for i in range(depth_unet+1)])
+        if enable_middle:
+            self.hyena_middle_list = nn.ModuleList([Hyena(level_i_len(i),level_i_dim(i),depth_hyena,dim_pos,dropout,self.positional_encoding_hyena_list[i]) for i in range(depth_unet+1)])
+        if enable_post:
+            self.hyena_post_list = nn.ModuleList([Hyena(level_i_len(i),level_i_dim(i),depth_hyena,dim_pos,dropout,self.positional_encoding_hyena_list[i]) for i in range(depth_unet+1)])
+    def unet_rec(self, x: torch.Tensor, depth: int) -> torch.Tensor:
+        batch = x.shape[0]
+        if self.enable_pre:
+            x = self.hyena_pre_list[depth](x)
+        if depth < self.depth_unet:
+            y = self.encoder_list[depth](x, self.positional_encoding_in_list[depth+1]().repeat(batch,1,1))
+            y = self.unet_rec(y, depth+1)
+        if self.enable_middle:
+            x = self.hyena_middle_list[depth](x)
+        if depth < self.depth_unet:
+            x = self.decoder_list[depth](y, x)
+        if self.enable_post:
+            x = self.hyena_post_list[depth](x)
+        return x
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.unet_rec(x, 0)
+        
+

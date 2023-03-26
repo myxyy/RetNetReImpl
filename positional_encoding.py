@@ -20,6 +20,3 @@ class PositionalEncoding(nn.Module):
 
     def forward(self, x: torch.Tensor=None) -> torch.Tensor:
         return self.pe if x is None else x + self.pe
-
-    def __call__(self):
-        return self.pe
