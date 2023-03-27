@@ -10,13 +10,13 @@ from pytorch_lightning.loggers import TensorBoardLogger
 
 class Lang(pl.LightningModule):
     logger: TensorBoardLogger
-    def __init__(self, model, len=1024, downsample_rate=0.5, depth_unet=10, depth_hyena=4, dropout=0.1, vocab_size=256, dim=256, dim_scale=1, dim_pos=256, batch_size=16, enable_pre=True, enable_middle=True, enable_post=True, enable_profiling=False):
+    def __init__(self, model, len=1024, downsample_rate=0.5, depth_unet=10, depth_hyena=4, dropout=0.1, vocab_size=256, dim=256, dim_scale=1, dim_pos=256, dim_ff_scale=2, batch_size=16, enable_pre=True, enable_middle=True, enable_post=True, enable_profiling=False):
         super().__init__()
         self.save_hyperparameters()
         self.enable_profiling=enable_profiling
         self.len = len
         self.vocab_size = vocab_size
-        self.hyena = model(len, downsample_rate, depth_unet, depth_hyena, dim, dim_scale, dim_pos, dropout, enable_pre=enable_pre, enable_middle=enable_middle, enable_post=enable_post)
+        self.hyena = model(len, downsample_rate, depth_unet, depth_hyena, dim, dim_scale, dim_pos, dim_ff_scale, dropout, enable_pre=enable_pre, enable_middle=enable_middle, enable_post=enable_post)
         self.token_in = nn.Linear(vocab_size, dim)
         self.token_out = nn.Linear(dim, vocab_size)
         self.batch_size = batch_size
@@ -64,7 +64,9 @@ class Lang(pl.LightningModule):
 model = Lang(
     HyenaUet,
     len=1024,
-    dim=256,
+    dim=64,
+    dim_scale=1.2,
+    dim_ff_scale=4,
     depth_unet=10,
     depth_hyena=1,
     batch_size=16,
