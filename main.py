@@ -10,9 +10,9 @@ from pytorch_lightning.loggers import TensorBoardLogger
 
 class Lang(pl.LightningModule):
     logger: TensorBoardLogger
-    def __init__(self, model, len=1024, downsample_rate=0.5, depth_unet=10, depth_hyena=4, dropout=0.1, vocab_size=256, dim=256, dim_scale=1, dim_pos=256, dim_ff_scale=2, batch_size=16, enable_pre=True, enable_middle=True, enable_post=True, enable_profiling=False):
+    def __init__(self, model, len=1024, downsample_rate=0.5, depth_unet=10, depth_hyena=4, dropout=0.1, vocab_size=256, dim=256, dim_scale=1, dim_pos=256, dim_ff_scale=2, batch_size=16, enable_pre=True, enable_middle=True, enable_post=True, enable_profiling=False, text_load_mode='slice'):
         super().__init__()
-        self.save_hyperparameters()
+        self.text_load_mode = text_load_mode
         self.enable_profiling=enable_profiling
         self.len = len
         self.vocab_size = vocab_size
@@ -22,6 +22,7 @@ class Lang(pl.LightningModule):
         self.batch_size = batch_size
         self.num_parameters = sum(p.numel() for p in self.parameters() if p.requires_grad)
         self.apply(self._init_weights)
+        self.save_hyperparameters()
 
     def _init_weights(self, m):
         if isinstance(m, nn.Linear):
@@ -64,10 +65,14 @@ class Lang(pl.LightningModule):
 model = Lang(
     HyenaUet,
     len=1024,
-    dim=64,
+    dim=256,
     dim_scale=1.2,
-    dim_ff_scale=4,
+    dim_ff_scale=2,
     depth_unet=10,
     depth_hyena=1,
     batch_size=16,
+    text_load_mode='slice',
+    enable_pre=False,
+    enable_middle=True,
+    enable_post=False,
 )
