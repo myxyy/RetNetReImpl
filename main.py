@@ -1,4 +1,4 @@
-from hyena import Hyena
+from hyena import HyenaUet
 
 import pytorch_lightning as pl
 from timm.models.layers import trunc_normal_
@@ -10,18 +10,19 @@ from pytorch_lightning.loggers import TensorBoardLogger
 
 class Lang(pl.LightningModule):
     logger: TensorBoardLogger
-    def __init__(self, model, len, depth=4, dropout=0.1, vocab_size=256, dim=256, dim_pos=256, enable_profiling=False, batch_size=16):
+    def __init__(self, model, len=1024, downsample_rate=0.5, depth_unet=10, depth_hyena=4, dropout=0.1, vocab_size=256, dim=256, dim_scale=1, dim_pos=256, dim_ff_scale=2, batch_size=16, enable_pre=True, enable_middle=True, enable_post=True, enable_profiling=False, text_load_mode='slice'):
         super().__init__()
-        self.save_hyperparameters()
+        self.text_load_mode = text_load_mode
         self.enable_profiling=enable_profiling
         self.len = len
         self.vocab_size = vocab_size
-        self.hyena = model(len, dim, depth, dim_pos, dropout)
+        self.hyena = model(len, downsample_rate, depth_unet, depth_hyena, dim, dim_scale, dim_pos, dim_ff_scale, dropout, enable_pre=enable_pre, enable_middle=enable_middle, enable_post=enable_post)
         self.token_in = nn.Linear(vocab_size, dim)
         self.token_out = nn.Linear(dim, vocab_size)
         self.batch_size = batch_size
         self.num_parameters = sum(p.numel() for p in self.parameters() if p.requires_grad)
         self.apply(self._init_weights)
+        self.save_hyperparameters()
 
     def _init_weights(self, m):
         if isinstance(m, nn.Linear):
@@ -62,9 +63,16 @@ class Lang(pl.LightningModule):
         return optimizer
 
 model = Lang(
-    Hyena,
-    1024,
+    HyenaUet,
+    len=1024,
     dim=256,
-    depth=16,
+    dim_scale=1.2,
+    dim_ff_scale=2,
+    depth_unet=0,
+    depth_hyena=32,
     batch_size=16,
+    text_load_mode='slice',
+    enable_pre=False,
+    enable_middle=True,
+    enable_post=False,
 )
