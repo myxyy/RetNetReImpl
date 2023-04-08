@@ -28,9 +28,8 @@ class HyenaBaseBlock(nn.Module):
         self.z_residual = z_residual
         if not (dim_in == dim_out and len_in == len_out) and z_residual:
             assert("z_residual can be True only if dim_in == dim_outand len_in == len_out")
-        if (self.dim_in != self.dim_out):
-            self.linear_in = nn.Linear(dim_in, dim_out, bias=False)
-            self.layer_norm_in = nn.LayerNorm(dim_in)
+        self.linear_in = nn.Linear(dim_in, dim_out, bias=False)
+        self.layer_norm_in = nn.LayerNorm(dim_in)
         if positional_encoding is None:
             positional_encoding = PositionalEncoding(len_in, dim_pos)
         self.pos = positional_encoding
@@ -43,14 +42,10 @@ class HyenaBaseBlock(nn.Module):
         self.ffn = FFN(dim_out, dim_ff_scale, dropout)
         self.layer_norm = nn.LayerNorm(dim_out)
     def forward(self, z, x):
-        if (self.dim_in != self.dim_out):
-            zn = self.layer_norm_in(z)
-            zn = self.linear_in(zn)
-        else:
-            zn = self.layer_norm(z)
+        zn = self.layer_norm_in(z)
+        zn = self.linear_in(zn)
         fz = fft.rfft(zn,n=self.len_in*2,dim=1) # (batch, ?, dim_out)
         h = self.linear_pos(self.pos())
-        h = self.layer_norm(h)
         expa = torch.exp(self.a)
         window = torch.exp(-torch.arange(self.len_in, device='cuda')*expa) # (len_in)
         wfh = fft.rfft(window.unsqueeze(-1)*h,n=self.len_in*2,dim=0) # (?, dim_out)
@@ -62,7 +57,7 @@ class HyenaBaseBlock(nn.Module):
             dcwhz = F.interpolate(cwhz.transpose(-2,-1), self.len_out).transpose(-2,-1) # (batch, len_out, dim_out)
         x = self.layer_norm(x)
         x = self.mx(x)
-        y = x * dcwhz
+        y = self.layer_norm(x) * self.layer_norm(dcwhz)
         if self.z_residual:
             y = y + z
         y = self.ffn(self.layer_norm(y))+y
@@ -111,8 +106,8 @@ class HyenaUet(nn.Module):
             return (int)(math.ceil(dim*(dim_scale**i)/2)*2)
         def level_i_len(i):
             return (int)(len*(downsample_rate**i))
-        self.positional_encoding_hyena_list = nn.ModuleList([PositionalEncoding(level_i_len(i),dim_pos) for i in range(depth_unet+1)])
-        self.positional_encoding_in_list = nn.ModuleList([PositionalEncoding(level_i_len(i),level_i_dim(i)) for i in range(depth_unet+1)])
+        self.positional_encoding_hyena_list = nn.ModuleList([PositionalEncoding(level_i_len(i),dim_pos,requires_grad=True) for i in range(depth_unet+1)])
+        self.positional_encoding_in_list = nn.ModuleList([PositionalEncoding(level_i_len(i),level_i_dim(i),requires_grad=True) for i in range(depth_unet+1)])
         self.encoder_list = nn.ModuleList([HyenaCross(level_i_len(i),level_i_len(i+1),level_i_dim(i),level_i_dim(i+1),depth_hyena,dim_pos,dim_ff_scale,dropout,self.positional_encoding_hyena_list[i]) for i in range(depth_unet)])
         self.decoder_list = nn.ModuleList([HyenaCross(level_i_len(i+1),level_i_len(i),level_i_dim(i+1),level_i_dim(i),depth_hyena,dim_pos,dim_ff_scale,dropout,self.positional_encoding_hyena_list[i+1]) for i in range(depth_unet)])
         if enable_pre:
