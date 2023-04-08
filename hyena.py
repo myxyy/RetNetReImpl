@@ -106,8 +106,8 @@ class HyenaUet(nn.Module):
             return (int)(math.ceil(dim*(dim_scale**i)/2)*2)
         def level_i_len(i):
             return (int)(len*(downsample_rate**i))
-        self.positional_encoding_hyena_list = nn.ModuleList([PositionalEncoding(level_i_len(i),dim_pos) for i in range(depth_unet+1)])
-        self.positional_encoding_in_list = nn.ModuleList([PositionalEncoding(level_i_len(i),level_i_dim(i)) for i in range(depth_unet+1)])
+        self.positional_encoding_hyena_list = nn.ModuleList([PositionalEncoding(level_i_len(i),dim_pos,requires_grad=True) for i in range(depth_unet+1)])
+        self.positional_encoding_in_list = nn.ModuleList([PositionalEncoding(level_i_len(i),level_i_dim(i),requires_grad=True) for i in range(depth_unet+1)])
         self.encoder_list = nn.ModuleList([HyenaCross(level_i_len(i),level_i_len(i+1),level_i_dim(i),level_i_dim(i+1),depth_hyena,dim_pos,dim_ff_scale,dropout,self.positional_encoding_hyena_list[i]) for i in range(depth_unet)])
         self.decoder_list = nn.ModuleList([HyenaCross(level_i_len(i+1),level_i_len(i),level_i_dim(i+1),level_i_dim(i),depth_hyena,dim_pos,dim_ff_scale,dropout,self.positional_encoding_hyena_list[i+1]) for i in range(depth_unet)])
         if enable_pre:
