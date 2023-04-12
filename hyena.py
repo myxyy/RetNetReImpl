@@ -59,7 +59,7 @@ class HyenaBaseBlock(nn.Module):
         y = self.layer_norm(x) * self.layer_norm(dcwhz)
         if self.z_residual:
             y = y + z
-        self.layer_norm(y)
+        y = self.layer_norm(y)
         y = self.ffn(y)+y
         return y
  
