@@ -42,9 +42,8 @@ class HyenaBaseBlock(nn.Module):
         self.ffn = FFN(dim_out, dim_ff_scale, dropout)
         self.layer_norm = nn.LayerNorm(dim_out)
     def forward(self, z, x):
-        zn = self.layer_norm_in(z)
-        zn = self.linear_in(zn)
-        fz = fft.rfft(zn,n=self.len_in*2,dim=1) # (batch, ?, dim_out)
+        z = self.layer_norm_in(z)
+        fz = fft.rfft(self.linear_in(z),n=self.len_in*2,dim=1) # (batch, ?, dim_out)
         h = self.linear_pos(self.pos())
         expa = torch.exp(self.a)
         window = torch.exp(-torch.arange(self.len_in, device='cuda')*expa) # (len_in)
@@ -60,7 +59,8 @@ class HyenaBaseBlock(nn.Module):
         y = self.layer_norm(x) * self.layer_norm(dcwhz)
         if self.z_residual:
             y = y + z
-        y = self.ffn(self.layer_norm(y))+y
+        self.layer_norm(y)
+        y = self.ffn(y)+y
         return y
  
 class HyenaBlock(HyenaBaseBlock):
