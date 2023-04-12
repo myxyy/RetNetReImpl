@@ -62,7 +62,7 @@ class Lang(pl.LightningModule):
 
 model = Lang(
     HyenaUet,
-    len=16384,
+    len=8192,
     dim=512,
     dim_scale=1,
     dim_ff_scale=2,
