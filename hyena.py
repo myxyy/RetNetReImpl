@@ -40,6 +40,7 @@ class HyenaBaseBlock(nn.Module):
         self.len_out = len_out
         self.mx = nn.Linear(dim_out, dim_out, bias=False)
         self.ffn = FFN(dim_out, dim_ff_scale, dropout)
+        self.ffn_x = FFN(dim_out, dim_ff_scale, dropout)
         self.layer_norm = nn.LayerNorm(dim_out)
     def forward(self, z, x):
         zn = self.layer_norm_in(z)
@@ -55,8 +56,8 @@ class HyenaBaseBlock(nn.Module):
         else:
             dcwhz = F.interpolate(cwhz.transpose(-2,-1), self.len_out).transpose(-2,-1) # (batch, len_out, dim_out)
         x = self.layer_norm(x)
-        x = self.mx(x)
-        y = self.layer_norm(x) * self.layer_norm(dcwhz)
+        x = self.ffn_x(x)
+        y = x * dcwhz
         if self.z_residual:
             y = y + z
         yn = self.layer_norm(y)
