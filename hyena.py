@@ -21,52 +21,45 @@ class FFN(nn.Module):
         return x
 
 class HyenaBaseBlock(nn.Module):
-    def __init__(self, len_in: int, len_out: int, dim_in: int, dim_out: int, dim_pos: int, dim_ff_scale: float, dropout: float, z_residual: bool=False, positional_encoding=None):
+    def __init__(self, len_in: int, len_out: int, dim_in: int, dim_out: int, dim_pos: int, dim_ff_scale: float, dropout: float, positional_encoding=None):
         super().__init__()
         self.dim_in = dim_in
         self.dim_out = dim_out
-        self.z_residual = z_residual
-        if not (dim_in == dim_out and len_in == len_out) and z_residual:
-            assert("z_residual can be True only if dim_in == dim_outand len_in == len_out")
-        self.linear_in = nn.Linear(dim_in, dim_out, bias=False)
-        self.layer_norm_in = nn.LayerNorm(dim_in)
+        if dim_in != dim_out:
+            self.linear_in = nn.Linear(dim_in, dim_out, bias=False)
         if positional_encoding is None:
             positional_encoding = PositionalEncoding(len_in, dim_pos)
         self.pos = positional_encoding
-        self.linear_pos = nn.Linear(dim_pos, dim_out, bias=False)
+        self.pos_linear_1 = nn.Linear(dim_pos, dim_pos * dim_ff_scale)
+        self.pos_linear_2 = nn.Linear(dim_pos * dim_ff_scale, dim_out)
         self.dropout = nn.Dropout(dropout)
+        self.act = nn.SiLU()
         self.a = nn.Parameter(torch.randn(1))
         self.len_in = len_in
         self.len_out = len_out
-        self.mx = nn.Linear(dim_out, dim_out, bias=False)
         self.ffn = FFN(dim_out, dim_ff_scale, dropout)
         self.ffn_x = FFN(dim_out, dim_ff_scale, dropout)
         self.layer_norm = nn.LayerNorm(dim_out)
     def forward(self, z, x):
-        zn = self.layer_norm_in(z)
-        fz = fft.rfft(self.linear_in(zn),n=self.len_in*2,dim=1) # (batch, ?, dim_out)
-        h = self.linear_pos(self.pos())
+        if self.dim_in != self.dim_out:
+            z = self.linear_in(z)
+        fz = fft.rfft(self.layer_norm(z),n=self.len_in*2,dim=1) # (batch, ?, dim_out)
+        h = self.dropout(self.pos_linear_2(self.act(self.pos_linear_1(self.pos())))) # (len_in, dim_out)
         expa = torch.exp(self.a)
         window = torch.exp(-torch.arange(self.len_in, device='cuda')*expa) # (len_in)
         wfh = fft.rfft(window.unsqueeze(-1)*h,n=self.len_in*2,dim=0) # (?, dim_out)
-        wfhfz = wfh*fz
-        cwhz = fft.irfft(wfhfz,dim=1).narrow(1,0,self.len_in) # (batch, len_in, dim_out)
-        if self.len_in == self.len_out:
-            dcwhz = cwhz
-        else:
-            dcwhz = F.interpolate(cwhz.transpose(-2,-1), self.len_out).transpose(-2,-1) # (batch, len_out, dim_out)
-        x = self.layer_norm(x)
-        x = self.ffn_x(x)
-        y = x * dcwhz
-        if self.z_residual:
-            y = y + z
+        cwhz = fft.irfft(wfh*fz,dim=1).narrow(1,0,self.len_in) # (batch, len_in, dim_out)
+        if self.len_in != self.len_out:
+            cwhz = F.interpolate(cwhz.transpose(-2,-1), self.len_out).transpose(-2,-1) # (batch, len_out, dim_out)
+        cwhz = cwhz + z
+        y = self.ffn_x(x) * self.layer_norm(cwhz)
         yn = self.layer_norm(y)
         y = self.ffn(yn)+y
         return y
  
 class HyenaBlock(HyenaBaseBlock):
     def __init__(self, len: int, dim: int, dim_pos: int, dim_ff_scale: float, dropout: float, positional_encoding=None):
-        super().__init__(len, len, dim, dim, dim_pos, dim_ff_scale, dropout, z_residual=True, positional_encoding=positional_encoding)
+        super().__init__(len, len, dim, dim, dim_pos, dim_ff_scale, dropout, positional_encoding=positional_encoding)
 
 class Hyena(nn.Module):
     def __init__(self, len: int, dim: int, depth: int, dim_pos: int, dim_ff_scale: float, dropout: float, positional_encoding=None):
@@ -75,13 +68,11 @@ class Hyena(nn.Module):
             positional_encoding = PositionalEncoding(len, dim_pos)
         block = HyenaBlock(len, dim, dim_pos, dim_ff_scale, dropout, positional_encoding=positional_encoding)
         self.block_list = nn.ModuleList([copy.deepcopy(block) for _ in range(depth)])
-        self.mz = nn.Linear(dim, dim, bias=False)
-        self.layer_norm = nn.LayerNorm(dim)
     # (batch, len, dim) -> (batch, len, dim)
-    def forward(self, v):
-        z = self.mz(self.layer_norm(v))+v
+    def forward(self, x):
+        z = x
         for block in self.block_list:
-            z = block(z, v)
+            z = block(z, x)
         return z
 
 class HyenaCross(nn.Module):
@@ -134,4 +125,39 @@ class HyenaUet(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.unet_rec(x, 0)
         
+
+class ModHyenaBlock(nn.Module):
+    def __init__(self, len: int, dim: int, dim_ff_scale: float, dropout: float, positional_encoding=None):
+        super().__init__()
+        self.dim = dim
+        if positional_encoding is None:
+            positional_encoding = PositionalEncoding(len, dim)
+        self.pos = positional_encoding
+        self.ffn_pos = FFN(dim, dim_ff_scale, dropout)
+        self.a = nn.Parameter(torch.randn(1))
+        self.len = len
+        self.ffn = FFN(dim, dim_ff_scale, dropout)
+        self.layer_norm = nn.LayerNorm(dim)
+    def forward(self, z):
+        fz = fft.rfft(self.layer_norm(z),n=self.len*2,dim=1) # (batch, ?, dim_out)
+        h = self.ffn_pos(self.pos()) # (len_in, dim_out)
+        expa = torch.exp(self.a)
+        window = torch.exp(-torch.arange(self.len, device='cuda')*expa) # (len_in)
+        wfh = fft.rfft(window.unsqueeze(-1)*h,n=self.len*2,dim=0) # (?, dim_out)
+        z = fft.irfft(wfh*fz,dim=1).narrow(1,0,self.len) + z # (batch, len_in, dim_out)
+        z = self.ffn(self.layer_norm(z))+z
+        return z
+ 
+class ModHyena(nn.Module):
+    def __init__(self, len: int, dim: int, depth: int, dim_ff_scale: float, dropout: float, positional_encoding=None):
+        super().__init__()
+        if positional_encoding is None:
+            positional_encoding = PositionalEncoding(len, dim)
+        block = ModHyenaBlock(len, dim, dim_ff_scale, dropout, positional_encoding=positional_encoding)
+        self.block_list = nn.ModuleList([copy.deepcopy(block) for _ in range(depth)])
+    # (batch, len, dim) -> (batch, len, dim)
+    def forward(self, z):
+        for block in self.block_list:
+            z = block(z)
+        return z
 

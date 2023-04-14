@@ -1,4 +1,4 @@
-from main import Lang
+from main import Lang, ModHyenaLang
 import torchvision.transforms as transforms
 import torch
 import pytorch_lightning as pl
@@ -6,9 +6,11 @@ import numpy as np
 
 np.set_printoptions(threshold=np.inf)
 
-model = Lang.load_from_checkpoint('weight.ckpt')
+model = ModHyenaLang.load_from_checkpoint('weight.ckpt')
 length = model.len
 vocab_size = model.vocab_size
+for p in model.parameters():
+    p.requires_grad = False
 model = model.cuda()
 
 print(f"#parameter:{model.num_parameters}")
