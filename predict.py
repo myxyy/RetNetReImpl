@@ -1,4 +1,4 @@
-from main import Lang, ModHyenaLang
+from main import Lang, ModHyenaLang, ModHyenaDownsampleRecurrentLang
 import torchvision.transforms as transforms
 import torch
 import pytorch_lightning as pl
@@ -6,8 +6,8 @@ import numpy as np
 
 np.set_printoptions(threshold=np.inf)
 
-model = ModHyenaLang.load_from_checkpoint('weight.ckpt')
-length = model.len
+model = ModHyenaDownsampleRecurrentLang.load_from_checkpoint('weight.ckpt', strict=False)
+length = model.len * 2
 vocab_size = model.vocab_size
 for p in model.parameters():
     p.requires_grad = False
@@ -18,21 +18,24 @@ print(f"#parameter:{model.num_parameters}")
 def predict(prompt):
     prompt = torch.from_numpy(np.array([i for i in prompt.encode('utf-8')]).astype(int)).clone().cuda()
     prompt_len = len(prompt)
-    prompt = torch.nn.functional.pad(prompt, (0,length-prompt_len),'constant',0)
+    prompt = torch.nn.functional.pad(prompt, (0,model.len-prompt_len),'constant',0)
 
+    hidden = model.hidden_init
     beam_width = 1
-    predict_init = model(prompt.view(1,length))
-    _, predict_init_i = predict_init.view(length, vocab_size)[prompt_len-1].topk(beam_width)
+    predict_init, _ = model(prompt.view(1,model.len), hidden)
+    _, predict_init_i = predict_init.view(model.len, vocab_size)[prompt_len-1].topk(beam_width)
     prompt_beam = prompt.repeat(beam_width, 1)
     prompt_beam[:,prompt_len] = predict_init_i
     prompt_len = prompt_len + 1
 
     while prompt_len < length:
-        predict_beam = model(prompt_beam)
+        predict_beam, hidden_next = model(prompt_beam, hidden)
         _, predict_beam_i = predict_beam[:,prompt_len-1,:].reshape(beam_width * vocab_size).topk(beam_width)
         prompt_beam = prompt_beam[torch.div(predict_beam_i, vocab_size, rounding_mode='floor')]
         prompt_beam[:,prompt_len] = predict_beam_i % vocab_size 
         prompt_len = prompt_len + 1
+        if prompt_len % model.len == 0:
+            hidden = hidden_next
 
     predict = prompt_beam[0]
     predict = predict.cpu().numpy().astype(dtype='uint8')

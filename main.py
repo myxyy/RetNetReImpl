@@ -113,13 +113,102 @@ class ModHyenaLang(pl.LightningModule):
         optimizer = torch.optim.Adam(self.parameters(), lr=0.0001)
         return optimizer
 
+class ModHyenaDownsampleRecurrentLang(pl.LightningModule):
+    def __init__(self, model, len=1024, enc_depth=4, dec_depth=4, dropout=0.1, vocab_size=256, dim=256, dim_ff_scale=2, batch_size=16, enable_profiling=False, text_load_mode='slice'):
+        super().__init__()
+        self.text_load_mode = text_load_mode
+        self.enable_profiling=enable_profiling
+        self.dim = dim
+        self.len = len
+        self.vocab_size = vocab_size
+        self.enc = model(len*2, dim, enc_depth, dim_ff_scale, dropout)
+        self.dec = model(len*2, dim, dec_depth, dim_ff_scale, dropout)
+        self.token_in = nn.Linear(vocab_size, dim)
+        self.token_out = nn.Linear(dim, vocab_size)
+        self.batch_size = batch_size
+        self.hidden = None
+        self.hidden_init = nn.Parameter(torch.randn(batch_size, len, dim, device='cuda'))
+        self.pos_emb = nn.Parameter(torch.randn(batch_size, len*2, dim, device='cuda'))
+        self.num_parameters = sum(p.numel() for p in self.parameters() if p.requires_grad)
+        self.downsample = nn.Conv1d(self.dim, self.dim, 2, stride=2)
+        self.apply(self._init_weights)
+        self.save_hyperparameters()
 
-model = ModHyenaLang(
+    def _init_weights(self, m):
+        if isinstance(m, nn.Linear):
+            trunc_normal_(m.weight, std=self.num_parameters**-0.5)
+            if isinstance(m, nn.Linear) and m.bias is not None:
+                nn.init.constant_(m.bias, 0)
+        elif isinstance(m, nn.LayerNorm):
+            nn.init.constant_(m.bias, 0)
+            nn.init.constant_(m.weight, 1.0)
+
+    def model_step(self, data, hidden):
+        data = torch.cat([hidden, data], dim=1)
+        data = data + self.pos_emb
+        hidden = self.enc(data)
+        data = self.dec(hidden)
+        hidden = self.downsample(hidden.transpose(2,1)).transpose(2,1)
+        return data, hidden
+
+
+    def training_step(self, batch, batch_idx):
+        data, next = batch
+        if batch_idx % 100 == 0:
+            self.hidden = self.hidden_init
+        data_head = data[:,0].unsqueeze(1)
+        x = nn.functional.one_hot(data.long(), self.vocab_size).float()
+        x_next = torch.cat([data_head, next], dim=1)
+        x = self.token_in(x)
+        if self.hidden is None:
+            self.hidden = self.hidden_init
+        with torch.no_grad():
+            hidden = self.hidden
+        hidden_next = hidden[:,1:self.len,:]
+        x, hidden = self.model_step(x, hidden)
+        x_hat = x.narrow(1,self.len-1,self.len+1)
+        hidden_hat = x.narrow(1,0,self.len-1)
+        x_hat = self.token_out(x_hat)
+        self.hidden.weight = hidden
+        loss_hidden = nn.MSELoss()(hidden_hat, hidden_next)
+        loss_text = nn.CrossEntropyLoss()(x_hat.view(-1,self.vocab_size), x_next.view(-1).long())
+        loss = loss_hidden + loss_text
+        self.log("loss_hidden", loss_hidden, on_epoch=False, prog_bar=True)
+        self.log("loss_text", loss_text, on_epoch=False, prog_bar=True)
+        self.log("train_loss", loss, on_epoch=False, prog_bar=True)
+        return loss
+
+    def forward(self, x, hidden):
+        x = nn.functional.one_hot(x.long(), self.vocab_size).float()
+        x = self.token_in(x)
+        x = torch.cat([hidden, x], dim=1)
+        hidden = self.enc(x)
+        x = self.dec(hidden)
+        hidden = self.downsample(hidden.transpose(2,1)).transpose(2,1)
+        x = x.narrow(1,self.len,self.len)
+        x_hat = self.token_out(x)
+        x_hat = x_hat.softmax(2)
+        return x_hat, hidden
+
+    def reset_hidden(self, hidden):
+        self.hidden = hidden
+
+    def clear_hidden(self):
+        self.hidden = None
+
+    def configure_optimizers(self):
+        optimizer = torch.optim.Adam(self.parameters(), lr=0.0001)
+        return optimizer
+
+
+
+model = ModHyenaDownsampleRecurrentLang(
     ModHyena,
-    len=4096,
+    len=2048,
     dim=512,
     dim_ff_scale=2,
-    depth=64,
+    enc_depth=32,
+    dec_depth=32,
     batch_size=1,
     text_load_mode='cut',
 )
