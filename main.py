@@ -154,7 +154,7 @@ class ModHyenaDownsampleRecurrentLang(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         data, next = batch
-        if batch_idx % 100 == 0:
+        if batch_idx % 128 == 0:
             self.hidden = self.hidden_init
         data_head = data[:,0].unsqueeze(1)
         x = nn.functional.one_hot(data.long(), self.vocab_size).float()
@@ -204,7 +204,7 @@ class ModHyenaDownsampleRecurrentLang(pl.LightningModule):
 
 model = ModHyenaDownsampleRecurrentLang(
     ModHyena,
-    len=2048,
+    len=256,
     dim=512,
     dim_ff_scale=2,
     enc_depth=32,

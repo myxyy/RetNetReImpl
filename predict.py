@@ -7,7 +7,7 @@ import numpy as np
 np.set_printoptions(threshold=np.inf)
 
 model = ModHyenaDownsampleRecurrentLang.load_from_checkpoint('weight.ckpt', strict=False)
-length = model.len * 2
+length = model.len * 16
 vocab_size = model.vocab_size
 for p in model.parameters():
     p.requires_grad = False
