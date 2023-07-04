@@ -121,14 +121,19 @@ class ModHyenaDownsampleRecurrentLang(pl.LightningModule):
         self.dim = dim
         self.len = len
         self.vocab_size = vocab_size
-        self.enc = model(len*2, dim, enc_depth, dim_ff_scale, dropout)
-        self.dec = model(len*2, dim, dec_depth, dim_ff_scale, dropout)
+        self.enc_hidden = model(len, dim, enc_depth//2, dim_ff_scale, dropout)
+        self.enc_text = model(len, dim, enc_depth//2, dim_ff_scale, dropout)
+        self.enc = model(len*2, dim, enc_depth//2, dim_ff_scale, dropout)
+        self.dec = model(len*2, dim, dec_depth//2, dim_ff_scale, dropout)
+        self.dec_hidden = model(len-1, dim, dec_depth//2, dim_ff_scale, dropout)
+        self.dec_text = model(len+1, dim, dec_depth//2, dim_ff_scale, dropout)
         self.token_in = nn.Linear(vocab_size, dim)
         self.token_out = nn.Linear(dim, vocab_size)
         self.batch_size = batch_size
         self.hidden = None
         self.hidden_init = nn.Parameter(torch.randn(batch_size, len, dim, device='cuda'))
-        self.pos_emb = nn.Parameter(torch.randn(batch_size, len*2, dim, device='cuda'))
+        self.pos_emb_hidden = nn.Parameter(torch.randn(batch_size, len, dim, device='cuda'))
+        self.pos_emb_text = nn.Parameter(torch.randn(batch_size, len, dim, device='cuda'))
         self.num_parameters = sum(p.numel() for p in self.parameters() if p.requires_grad)
         self.downsample = nn.Conv1d(self.dim, self.dim, 2, stride=2)
         self.apply(self._init_weights)
@@ -143,13 +148,26 @@ class ModHyenaDownsampleRecurrentLang(pl.LightningModule):
             nn.init.constant_(m.bias, 0)
             nn.init.constant_(m.weight, 1.0)
 
-    def model_step(self, data, hidden):
-        data = torch.cat([hidden, data], dim=1)
-        data = data + self.pos_emb
-        hidden = self.enc(data)
-        data = self.dec(hidden)
+    def model_step(self, text, hidden_prev):
+        hidden_prev = hidden_prev + self.pos_emb_hidden
+        text = text + self.pos_emb_text
+
+        hidden_prev = self.enc_hidden(hidden_prev)
+        text = self.enc_text(text)
+
+        hidden_before_enc = torch.cat([hidden_prev, text], dim=1)
+        hidden = self.enc(hidden_before_enc)
+        hidden_after_dec = self.dec(hidden)
+
+        hidden_prev = hidden_after_dec.narrow(1,0,self.len-1)
+        text = hidden_after_dec.narrow(1,self.len-1,self.len+1)
+
+        hidden_prev = self.dec_hidden(hidden_prev)
+        text = self.dec_text(text)
+
         hidden = self.downsample(hidden.transpose(2,1)).transpose(2,1)
-        return data, hidden
+
+        return text, hidden_prev, hidden
 
 
     def training_step(self, batch, batch_idx):
@@ -165,9 +183,7 @@ class ModHyenaDownsampleRecurrentLang(pl.LightningModule):
         with torch.no_grad():
             hidden = self.hidden
         hidden_next = hidden[:,1:self.len,:]
-        x, hidden = self.model_step(x, hidden)
-        x_hat = x.narrow(1,self.len-1,self.len+1)
-        hidden_hat = x.narrow(1,0,self.len-1)
+        x_hat, hidden_hat, hidden = self.model_step(x, hidden)
         x_hat = self.token_out(x_hat)
         self.hidden.weight = hidden
         loss_hidden = nn.MSELoss()(hidden_hat, hidden_next)
@@ -181,11 +197,17 @@ class ModHyenaDownsampleRecurrentLang(pl.LightningModule):
     def forward(self, x, hidden):
         x = nn.functional.one_hot(x.long(), self.vocab_size).float()
         x = self.token_in(x)
-        x = torch.cat([hidden, x], dim=1)
-        hidden = self.enc(x)
-        x = self.dec(hidden)
-        hidden = self.downsample(hidden.transpose(2,1)).transpose(2,1)
-        x = x.narrow(1,self.len,self.len)
+
+        #x = torch.cat([hidden, x], dim=1)
+
+        #hidden = self.enc(x)
+        #x = self.dec(hidden)
+        #hidden = self.downsample(hidden.transpose(2,1)).transpose(2,1)
+        #x = x.narrow(1,self.len,self.len)
+
+        x, _, hidden = self.model_step(x, hidden)
+        x = x.narrow(1,1,self.len)
+
         x_hat = self.token_out(x)
         x_hat = x_hat.softmax(2)
         return x_hat, hidden
@@ -205,7 +227,7 @@ class ModHyenaDownsampleRecurrentLang(pl.LightningModule):
 model = ModHyenaDownsampleRecurrentLang(
     ModHyena,
     len=256,
-    dim=512,
+    dim=1024,
     dim_ff_scale=2,
     enc_depth=32,
     dec_depth=32,
