@@ -30,12 +30,20 @@ def predict(prompt):
 
     start = 0
     while prompt_len < length:
+        print(f"{prompt_len} {start}")
+        #print(prompt_beam[:,start:start+model.len])
         predict_beam, hidden_next = model(prompt_beam[:,start:start+model.len], hidden)
         _, predict_beam_i = predict_beam[:,prompt_len-1-start,:].reshape(beam_width * vocab_size).topk(beam_width)
         prompt_beam = prompt_beam[torch.div(predict_beam_i, vocab_size, rounding_mode='floor')]
         prompt_beam[:,prompt_len] = predict_beam_i % vocab_size 
         prompt_len = prompt_len + 1
-        if prompt_len % model.len == 0:
+
+        predict = prompt_beam[0]
+        predict = predict.cpu().numpy().astype(dtype='uint8')
+        predict = predict.tobytes().decode('utf-8', 'replace')
+        print(predict)
+
+        if prompt_len % model.len == 1 and prompt_len > 1:
             start = start + model.len
             hidden = hidden_next
 

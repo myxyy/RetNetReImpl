@@ -121,8 +121,12 @@ class ModHyenaDownsampleRecurrentLang(pl.LightningModule):
         self.dim = dim
         self.len = len
         self.vocab_size = vocab_size
-        self.enc = model(len*2, dim, enc_depth, dim_ff_scale, dropout)
-        self.dec = model(len*2, dim, dec_depth, dim_ff_scale, dropout)
+        self.enc_hidden = model(len, dim, enc_depth//2, dim_ff_scale, dropout)
+        self.enc_text = model(len, dim, enc_depth//2, dim_ff_scale, dropout)
+        self.enc = model(len*2, dim, enc_depth//2, dim_ff_scale, dropout)
+        self.dec = model(len*2, dim, dec_depth//2, dim_ff_scale, dropout)
+        self.dec_hidden = model(len-1, dim, dec_depth//2, dim_ff_scale, dropout)
+        self.dec_text = model(len+1, dim, dec_depth//2, dim_ff_scale, dropout)
         self.token_in = nn.Linear(vocab_size, dim)
         self.token_out = nn.Linear(dim, vocab_size)
         self.batch_size = batch_size
@@ -148,12 +152,18 @@ class ModHyenaDownsampleRecurrentLang(pl.LightningModule):
         hidden_prev = hidden_prev + self.pos_emb_hidden
         text = text + self.pos_emb_text
 
+        hidden_prev = self.enc_hidden(hidden_prev)
+        text = self.enc_text(text)
+
         hidden_before_enc = torch.cat([hidden_prev, text], dim=1)
         hidden = self.enc(hidden_before_enc)
         hidden_after_dec = self.dec(hidden)
 
         hidden_prev = hidden_after_dec.narrow(1,0,self.len-1)
         text = hidden_after_dec.narrow(1,self.len-1,self.len+1)
+
+        hidden_prev = self.dec_hidden(hidden_prev)
+        text = self.dec_text(text)
 
         hidden = self.downsample(hidden.transpose(2,1)).transpose(2,1)
 
