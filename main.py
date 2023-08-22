@@ -77,7 +77,7 @@ class SpiralConvLang(pl.LightningModule):
 model = SpiralConvLang(
     SpiralConv,
     len=256,
-    depth=64,
+    depth=128,
     dim=1024,
     dim_ff_scale=2,
     batch_size=1,

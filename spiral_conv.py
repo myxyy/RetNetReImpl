@@ -39,9 +39,9 @@ class SpiralConvConvBlock(nn.Module):
         conv_filter_x = torch.fft.ifft(filter_fft.unsqueeze(1) * x_fft, dim=0).narrow(0,0,len) # (len, batch, dim)
         conv_with_past = conv_filter_x + self.last_conv.detach().unsqueeze(0)*filter.unsqueeze(1)*c.unsqueeze(0).unsqueeze(0)
         if self.is_refresh:
-            self.last_conv = conv_filter_x[-1]
+            self.last_conv = conv_with_past[-1]
         
-        return conv_with_past.real * x
+        return conv_with_past.real
 
     def clear_hidden(self):
         self.last_conv = None
