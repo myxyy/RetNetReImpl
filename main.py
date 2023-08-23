@@ -1,5 +1,5 @@
+from recurrent_hyena import RecurrentHyena
 from spiral_conv import SpiralConv
-
 import pytorch_lightning as pl
 from timm.models.layers import trunc_normal_
 import torchvision.transforms as transforms
@@ -7,12 +7,12 @@ import torch
 from torchmetrics import MeanMetric
 import torch.nn as nn
 
-class SpiralConvLang(pl.LightningModule):
+class Lang(pl.LightningModule):
     def __init__(self, model, len=1024, depth=32, dropout=0.1, vocab_size=256, dim=256, dim_ff_scale=2, batch_size=1, enable_profiling=False, text_load_mode='cut'):
         super().__init__()
         self.text_load_mode = text_load_mode
         self.enable_profiling=enable_profiling
-        self.model = model(depth, dim, dim_ff_scale, dropout)
+        self.model = model(len, depth, dim, dim_ff_scale, dropout)
         self.dim = dim
         self.len = len
         self.vocab_size = vocab_size
@@ -74,11 +74,11 @@ class SpiralConvLang(pl.LightningModule):
 
 
 
-model = SpiralConvLang(
+model = Lang(
     SpiralConv,
-    len=256,
+    len=128,
     depth=128,
-    dim=1024,
+    dim=128,
     dim_ff_scale=2,
     batch_size=1,
 )
