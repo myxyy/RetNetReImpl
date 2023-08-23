@@ -19,10 +19,9 @@ class SpiralConvConvBlock(nn.Module):
     def __init__(self, dim: int):
         super().__init__()
         self.dim = dim
-        self.lmlg = nn.Parameter(torch.randn(dim)) # log(-log(gamma))
-        self.theta = nn.Parameter(torch.randn(dim))
+        self.c = nn.Parameter(torch.randn(dim, dtype=torch.cfloat)) # log(-log(gamma))
         self.last_conv = None # (batch, dim)
-        self.last_conv_init = nn.Parameter(torch.randn(dim)) # (dim)
+        self.last_conv_init = nn.Parameter(torch.randn(dim, dtype=torch.cfloat)) # (dim)
         self.is_refresh = True
 
     # (len, batch, dim) -> (len, batch, dim)
@@ -31,8 +30,7 @@ class SpiralConvConvBlock(nn.Module):
         batch = x.shape[1]
         if self.last_conv is None:
             self.last_conv = self.last_conv_init.expand(batch, self.dim) 
-        gamma = torch.exp(-torch.exp(self.lmlg))
-        c = torch.polar(gamma, self.theta)
+        c = self.c / self.c.abs() * torch.exp(-self.c.abs())
         filter = torch.pow(c.unsqueeze(0), torch.arange(len, device=x.device).unsqueeze(1)) # (len, dim)
         filter_fft = torch.fft.fft(filter, n=len*2, dim=0) # (len*2, dim)
         x_fft = torch.fft.fft(x, n=len*2, dim=0) # (len*2, batch, dim)
