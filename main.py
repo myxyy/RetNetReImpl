@@ -76,9 +76,9 @@ class Lang(pl.LightningModule):
 
 model = Lang(
     SpiralConv,
-    len=128,
+    len=256,
     depth=128,
-    dim=128,
+    dim=1024,
     dim_ff_scale=2,
     batch_size=1,
 )

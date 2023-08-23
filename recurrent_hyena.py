@@ -33,21 +33,20 @@ class RecurrentHyenaBlock(nn.Module):
         self.hidden_init = nn.Parameter(torch.randn(len, dim))
         self.is_refresh = True
 
-    # (len, batch, dim) -> (len, batch, dim)
+    # (batch, len, dim) -> (batch, len, dim)
     def forward(self, z):
-        batch = z.shape[1]
-        print(f'test:{z.shape}')
+        batch = z.shape[0]
         if self.hidden is None:
-            self.hidden = self.hidden_init.unsqueeze(1).expand(self.len, batch, self.dim)
-        fz = fft.rfft(self.layer_norm(z),n=self.len*2,dim=0) # (?, batch, dim)
+            self.hidden = self.hidden_init.unsqueeze(0).expand(batch, self.len, self.dim)
+        fz = fft.rfft(self.layer_norm(z),n=self.len*2,dim=1) # (batch, ?, dim)
         h = self.ffn_pos(self.pos()) # (len, dim)
         expa = torch.exp(self.a)
         window = torch.exp(-torch.arange(self.len, device=z.device)*expa) # (len)
         wfh = fft.rfft(window.unsqueeze(-1)*h,n=self.len*2,dim=0) # (?, dim)
-        z_hidden = fft.irfft(wfh.unsqueeze(1)*fz,dim=0) # (len, batch, dim)
-        z = z_hidden.narrow(0,0,self.len) + self.hidden.detach() #+ z # (len, batch, dim)
+        z_hidden = fft.irfft(wfh.unsqueeze(0)*fz,dim=1) # (batch, len, dim)
+        z = z_hidden.narrow(1,0,self.len) + self.hidden.detach() #+ z # (batch, len, dim)
         if self.is_refresh:
-            self.hidden = z_hidden.narrow(0,self.len,self.len)
+            self.hidden = z_hidden.narrow(1,self.len,self.len)
         z = self.ffn(self.layer_norm(z))+z
         return z
  

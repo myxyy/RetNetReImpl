@@ -24,20 +24,20 @@ class SpiralConvConvBlock(nn.Module):
         self.last_conv_init = nn.Parameter(torch.randn(dim, dtype=torch.cfloat)) # (dim)
         self.is_refresh = True
 
-    # (len, batch, dim) -> (len, batch, dim)
+    # (batch, len, dim) -> (batch, len, dim)
     def forward(self, x):
-        len = x.shape[0]
-        batch = x.shape[1]
+        batch = x.shape[0]
+        len = x.shape[1]
         if self.last_conv is None:
             self.last_conv = self.last_conv_init.expand(batch, self.dim) 
         c = self.c / self.c.abs() * torch.exp(-self.c.abs())
         filter = torch.pow(c.unsqueeze(0), torch.arange(len, device=x.device).unsqueeze(1)) # (len, dim)
         filter_fft = torch.fft.fft(filter, n=len*2, dim=0) # (len*2, dim)
-        x_fft = torch.fft.fft(x, n=len*2, dim=0) # (len*2, batch, dim)
-        conv_filter_x = torch.fft.ifft(filter_fft.unsqueeze(1) * x_fft, dim=0).narrow(0,0,len) # (len, batch, dim)
-        conv_with_past = conv_filter_x + self.last_conv.detach().unsqueeze(0)*filter.unsqueeze(1)*c.unsqueeze(0).unsqueeze(0)
+        x_fft = torch.fft.fft(x, n=len*2, dim=1) # (batch, len*2, dim)
+        conv_filter_x = torch.fft.ifft(filter_fft.unsqueeze(0) * x_fft, dim=1).narrow(1,0,len) # (batch, len, dim)
+        conv_with_past = conv_filter_x + self.last_conv.detach().unsqueeze(1)*filter.unsqueeze(0)*c.unsqueeze(0).unsqueeze(0)
         if self.is_refresh:
-            self.last_conv = conv_with_past[-1]
+            self.last_conv = conv_with_past[:,-1,:]
         
         return conv_with_past.real
 
