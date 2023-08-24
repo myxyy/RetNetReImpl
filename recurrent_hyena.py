@@ -44,7 +44,7 @@ class RecurrentHyenaBlock(nn.Module):
         window = torch.exp(-torch.arange(self.len, device=z.device)*expa) # (len)
         wfh = fft.rfft(window.unsqueeze(-1)*h,n=self.len*2,dim=0) # (?, dim)
         z_hidden = fft.irfft(wfh.unsqueeze(0)*fz,dim=1) # (batch, len, dim)
-        z = z_hidden.narrow(1,0,self.len) + self.hidden.detach() #+ z # (batch, len, dim)
+        z = z_hidden.narrow(1,0,self.len) + self.hidden.detach() + z # (batch, len, dim)
         if self.is_refresh:
             self.hidden = z_hidden.narrow(1,self.len,self.len)
         z = self.ffn(self.layer_norm(z))+z
