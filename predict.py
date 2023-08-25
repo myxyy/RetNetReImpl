@@ -1,4 +1,4 @@
-from main import Lang, ModHyenaLang, ModHyenaDownsampleRecurrentLang
+from main import Lang 
 import torchvision.transforms as transforms
 import torch
 import pytorch_lightning as pl
@@ -6,8 +6,8 @@ import numpy as np
 
 np.set_printoptions(threshold=np.inf)
 
-model = ModHyenaDownsampleRecurrentLang.load_from_checkpoint('weight.ckpt', strict=False)
-length = model.len * 16
+model = Lang.load_from_checkpoint('weight.ckpt', strict=False)
+length = model.len * 10
 vocab_size = model.vocab_size
 for p in model.parameters():
     p.requires_grad = False
@@ -20,9 +20,10 @@ def predict(prompt):
     prompt_len = len(prompt)
     prompt = torch.nn.functional.pad(prompt, (0,length-prompt_len),'constant',0)
 
-    hidden = model.hidden_init
-    beam_width = 1
-    predict_init, _ = model(prompt.view(1,length)[:,0:model.len], hidden)
+    beam_width = 2
+    model.clear_hidden()
+    model.set_is_refresh(False)
+    predict_init = model(prompt.view(1,length)[:,0:model.len])
     _, predict_init_i = predict_init.view(model.len, vocab_size)[prompt_len-1].topk(beam_width)
     prompt_beam = prompt.repeat(beam_width, 1)
     prompt_beam[:,prompt_len] = predict_init_i
@@ -32,7 +33,8 @@ def predict(prompt):
     while prompt_len < length:
         print(f"{prompt_len} {start}")
         #print(prompt_beam[:,start:start+model.len])
-        predict_beam, hidden_next = model(prompt_beam[:,start:start+model.len], hidden)
+        model.set_is_refresh(prompt_len % model.len == 0)
+        predict_beam = model(prompt_beam[:,start:start+model.len])
         _, predict_beam_i = predict_beam[:,prompt_len-1-start,:].reshape(beam_width * vocab_size).topk(beam_width)
         prompt_beam = prompt_beam[torch.div(predict_beam_i, vocab_size, rounding_mode='floor')]
         prompt_beam[:,prompt_len] = predict_beam_i % vocab_size 
@@ -45,7 +47,6 @@ def predict(prompt):
 
         if prompt_len % model.len == 1 and prompt_len > 1:
             start = start + model.len
-            hidden = hidden_next
 
     predict = prompt_beam[0]
     predict = predict.cpu().numpy().astype(dtype='uint8')

@@ -1,4 +1,3 @@
-from recurrent_hyena import RecurrentHyena
 from spiral_conv import SpiralConv
 import pytorch_lightning as pl
 from timm.models.layers import trunc_normal_
@@ -66,7 +65,10 @@ class Lang(pl.LightningModule):
         return x_hat
 
     def clear_hidden(self):
-        self.hidden = None
+        self.model.clear_hidden()
+
+    def set_is_refresh(self, is_refresh):
+        self.model.set_is_refresh(is_refresh)
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=0.0001)
@@ -75,9 +77,9 @@ class Lang(pl.LightningModule):
 
 
 model = Lang(
-    RecurrentHyena,
+    SpiralConv,
     len=256,
-    depth=64,
+    depth=128,
     dim=1024,
     dim_ff_scale=2,
     batch_size=1,
