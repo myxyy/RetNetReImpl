@@ -7,7 +7,8 @@ import numpy as np
 np.set_printoptions(threshold=np.inf)
 
 model = Lang.load_from_checkpoint('weight.ckpt', strict=False)
-length = model.len * 10
+model.len = 256
+length = 1024
 vocab_size = model.vocab_size
 for p in model.parameters():
     p.requires_grad = False
