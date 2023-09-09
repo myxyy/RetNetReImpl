@@ -57,7 +57,7 @@ def main(cfg):
             predict = predict.tobytes().decode('utf-8', 'replace')
             print(predict)
 
-            if current_len % context_len == 1 and current_len > 1:
+            if (current_len % context_len == 1 or context_len == 1) and current_len > 1:
                 start = start + context_len
 
         predict = prompt_beam[0]
