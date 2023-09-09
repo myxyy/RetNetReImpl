@@ -1,6 +1,8 @@
 *.txt
+!requirements.txt
 __pycache__
 lightning_logs*
 *.pth
 weight*
 log*
+outputs/
