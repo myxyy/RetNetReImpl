@@ -1,0 +1,5 @@
+hydra-core
+xlrd
+pytorch-lightning
+timm
+tensorboard
