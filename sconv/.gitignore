@@ -4,3 +4,4 @@ lightning_logs*
 *.pth
 weight*
 log*
+outputs/

@@ -1,0 +1,5 @@
+_target_: main.Lang
+dim: 1024
+depth: 128
+dim_ff_scale: 2
+dropout: 0.1

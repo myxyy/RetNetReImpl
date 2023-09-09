@@ -7,17 +7,15 @@ from torchmetrics import MeanMetric
 import torch.nn as nn
 
 class Lang(pl.LightningModule):
-    def __init__(self, model, len=1024, depth=32, dropout=0.1, vocab_size=256, dim=256, dim_ff_scale=2, batch_size=1, enable_profiling=False, text_load_mode='cut'):
+    def __init__(self, model=SpiralConv, depth=32, dropout=0.1, vocab_size=256, dim=256, dim_ff_scale=2, enable_profiling=False, text_load_mode='cut'):
         super().__init__()
         self.text_load_mode = text_load_mode
         self.enable_profiling=enable_profiling
-        self.model = model(len, depth, dim, dim_ff_scale, dropout)
+        self.model = model(depth, dim, dim_ff_scale, dropout)
         self.dim = dim
-        self.len = len
         self.vocab_size = vocab_size
         self.token_in = nn.Linear(vocab_size, dim)
         self.token_out = nn.Linear(dim, vocab_size)
-        self.batch_size = batch_size
         self.num_parameters = sum(p.numel() for p in self.parameters() if p.requires_grad)
         self.clear_count = 0
 
@@ -73,14 +71,3 @@ class Lang(pl.LightningModule):
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=0.0001)
         return optimizer
-
-
-
-model = Lang(
-    SpiralConv,
-    len=1024,
-    depth=128,
-    dim=1024,
-    dim_ff_scale=2,
-    batch_size=1,
-)
