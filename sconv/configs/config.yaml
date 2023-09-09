@@ -1,3 +1,4 @@
 defaults:
   - model: default.yaml
   - train: default.yaml
+  - predict: default.yaml
