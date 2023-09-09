@@ -1,0 +1,14 @@
+services:
+  sconv:
+    build: ./sconv/
+    image: sconv 
+    container_name: "sconv"
+    tty: true
+    shm_size: 16G
+    volumes:
+      - ./sconv:/workspace
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: [gpu]
