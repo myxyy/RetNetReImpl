@@ -7,7 +7,7 @@ import hydra
 
 np.set_printoptions(threshold=np.inf)
 
-@hydra.main(version_base=None, config_path="configs/", config_name="config")
+@hydra.main(version_base=None, config_path="../configs/", config_name="config")
 def main(cfg):
     model = Lang.load_from_checkpoint('weight.ckpt', strict=False)
     context_len = 256

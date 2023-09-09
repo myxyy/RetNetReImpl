@@ -7,7 +7,7 @@ from pytorch_lightning.loggers import TensorBoardLogger
 import hydra
 from hydra.utils import instantiate
 
-@hydra.main(version_base=None, config_path="configs/", config_name="config")
+@hydra.main(version_base=None, config_path="../configs/", config_name="config")
 def main(cfg):
     transforms = torchvision.transforms.Compose([])
     dataset = TextDataset('data.txt', cfg.train.length, transforms)
