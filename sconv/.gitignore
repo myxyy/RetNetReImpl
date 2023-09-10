@@ -3,6 +3,6 @@
 __pycache__
 lightning_logs*
 *.pth
-weight*
+*.ckpt
 log*
 outputs/
