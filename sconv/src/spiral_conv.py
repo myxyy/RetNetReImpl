@@ -43,8 +43,11 @@ class SpiralConvConvBlock(nn.Module):
         
         return conv_with_past.real
 
-    def clear_hidden(self):
+    def reset_hidden(self):
         self.last_conv = None
+
+    def randomize_init(self):
+        self.last_conv_init.value = torch.randn(self.dim, dtype=torch.cfloat)
 
     def set_is_refresh(self, is_refresh):
         self.is_refresh = is_refresh
@@ -69,8 +72,11 @@ class SpiralConvBlock(nn.Module):
 
         return x
 
-    def clear_hidden(self):
-        self.spiral_conv.clear_hidden()
+    def reset_hidden(self):
+        self.spiral_conv.reset_hidden()
+
+    def randomize_init(self):
+        self.spiral_conv.randomize_init()
 
     def set_is_refresh(self, is_refresh):
         self.spiral_conv.set_is_refresh(is_refresh)
@@ -85,9 +91,13 @@ class SpiralConv(nn.Module):
             x = block(x)
         return x 
 
-    def clear_hidden(self):
+    def reset_hidden(self):
         for block in self.block_list:
-            block.clear_hidden()
+            block.reset_hidden()
+
+    def randomize_init(self):
+        for block in self.block_list:
+            block.randomize_init()
 
     def set_is_refresh(self, is_refresh):
         for block in self.block_list:

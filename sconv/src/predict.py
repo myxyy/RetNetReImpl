@@ -26,7 +26,8 @@ def main(cfg):
         prompt = torch.nn.functional.pad(prompt, (0, length-prompt_len), 'constant', 0)
 
         beam_width = 1
-        model.clear_hidden()
+        model.randomize_init()
+        model.reset_hidden()
 
         current_len = 0
         start = 0

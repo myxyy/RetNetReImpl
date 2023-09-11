@@ -45,7 +45,7 @@ class Lang(pl.LightningModule):
         text, text_next = batch
 
         if self.clear_count % 128 == 0:
-            self.model.clear_hidden()
+            self.model.reset_hidden()
         self.clear_count += 1
 
         text_hat = self(text)
@@ -62,8 +62,11 @@ class Lang(pl.LightningModule):
         x_hat = self.token_out(x)
         return x_hat
 
-    def clear_hidden(self):
-        self.model.clear_hidden()
+    def reset_hidden(self):
+        self.model.reset_hidden()
+
+    def randomize_init(self):
+        self.model.randomize_init()
 
     def set_is_refresh(self, is_refresh):
         self.model.set_is_refresh(is_refresh)
