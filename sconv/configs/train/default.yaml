@@ -1,5 +1,5 @@
 length: 1024
 max_epochs: 100
 log_every_n_steps: 1000
-text: "text/data.txt"
+text: "text/natsume.txt"
 weight: "weight/weight.ckpt"
