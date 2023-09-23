@@ -1,4 +1,4 @@
-length: 1024
+length: 256
 max_epochs: 100
 log_every_n_steps: 1000
 text: "text/natsume.txt"

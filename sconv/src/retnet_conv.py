@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import numpy as np
 
 class FFN(nn.Module):
     def __init__(self, dim: int, dim_ff_scale: float, dropout: float):
@@ -21,10 +22,10 @@ class RetentionConv(nn.Module):
         self.dim = dim
         self.dim_qkv = dim_qkv
         self.num_head = num_head
-        self.phazor = nn.Parameter(torch.randn((num_head, dim_qkv, dim_qkv), dtype=torch.cfloat)) # log(-log(gamma))
-        self.phazor_init = nn.Parameter(torch.randn((num_head, dim_qkv, dim_qkv), dtype=torch.cfloat)) # log(-log(gamma))
-        self.last_conv = None # (batch, dim)
-        self.last_conv_init = nn.Parameter(torch.randn((num_head, dim_qkv, dim_qkv), dtype=torch.cfloat)) # (dim)
+        self.phazor = nn.Parameter(torch.randn((num_head, dim_qkv), dtype=torch.cfloat)) # log(-log(gamma))
+        #self.phazor_init = nn.Parameter(torch.randn((num_head, dim_qkv, dim_qkv), dtype=torch.cfloat)) # log(-log(gamma))
+        self.last_conv = None # (batch, num_head, dim_qkv, dim_qkv)
+        self.last_conv_init = nn.Parameter(torch.randn((num_head, dim_qkv, dim_qkv), dtype=torch.cfloat)) # (num_head, dim_qkv, dim_qkv)
         self.wq = nn.Linear(dim, num_head * dim_qkv)
         self.wk = nn.Linear(dim, num_head * dim_qkv)
         self.wv = nn.Linear(dim, num_head * dim_qkv)
@@ -35,23 +36,43 @@ class RetentionConv(nn.Module):
     def forward(self, x):
         batch = x.shape[0]
         len = x.shape[1]
+        num_head = self.num_head
+        dim_qkv = self.dim_qkv
+
         query = self.wq(x).view(batch, len, self.num_head, self.dim_qkv) # (batch, len, num_head, dim_qkv)
         key = self.wk(x).view(batch, len, self.num_head, self.dim_qkv) # (batch, len, num_head, dim_qkv)
         value = self.wv(x).view(batch, len, self.num_head, self.dim_qkv) # (batch, len, num_head, dim_qkv)
+
         kv = torch.matmul(key.unsqueeze(4), value.unsqueeze(3)) # (batch, len, num_head, dim_qkv, dim_qkv)
+
         if self.last_conv is None:
             self.last_conv = self.last_conv_init.unsqueeze(0).expand(batch, self.num_head, self.dim_qkv, self.dim_qkv) 
-        phazor = self.phazor / self.phazor.abs() * torch.exp(-self.phazor.abs())
-        phazor_progression = torch.pow(phazor.unsqueeze(0), torch.arange(len, device=x.device).unsqueeze(1).unsqueeze(1).unsqueeze(1)) # (len, num_head, dim_qkv, dim_qkv)
-        filter = phazor_progression * self.phazor_init.unsqueeze(0) # (len, num_head, dim_qkv, dim_qkv)
-        filter_fft = torch.fft.fft(filter, n=len*2, dim=0) # (len*2, num_head, dim_qkv, dim_qkv)
-        kv_fft = torch.fft.fft(kv, n=len*2, dim=1) # (batch, len*2, num_head, dim_qkv, dim_qkv)
-        conv_filter_kv = torch.fft.ifft(filter_fft.unsqueeze(0) * kv_fft, dim=1).narrow(1,0,len) # (batch, len, num_head, dim_qkv, dim_qkv)
-        conv_with_past = conv_filter_kv + self.last_conv.detach().unsqueeze(1)*phazor_progression.unsqueeze(0)*phazor.unsqueeze(0).unsqueeze(0)
+
+        phase = self.phazor / self.phazor.abs()
+        amplitude = torch.exp(-self.phazor.abs()).mean(1) # (num_head,)
+        phazor = phase * amplitude.unsqueeze(-1).expand(num_head, dim_qkv) # (num_head, dim_qkv)
+        phase_progression = torch.pow(phase.unsqueeze(0), (torch.arange(len, device=x.device)).unsqueeze(1).unsqueeze(1)).expand(len, num_head, dim_qkv) # (len, num_head, dim_qkv)
+        phase_progression_inverse = torch.pow(phase.unsqueeze(0), (-torch.arange(len, device=x.device)).unsqueeze(1).unsqueeze(1)).expand(len, num_head, dim_qkv) # (len, num_head, dim_qkv)
+        phazor_progression = torch.pow(phazor.unsqueeze(0), (torch.arange(len, device=x.device)).unsqueeze(1).unsqueeze(1)).expand(len, num_head, dim_qkv) # (len, num_head, dim_qkv)
+        phazor_progression_inverse = torch.pow(phazor.unsqueeze(0), (len - 1 - torch.arange(len, device=x.device)).unsqueeze(1).unsqueeze(1)).expand(len, num_head, dim_qkv) # (len, num_head, dim_qkv)
+
+        cross_chunk = torch.matmul(query.unsqueeze(3) * phazor_progression.unsqueeze(0).unsqueeze(3), self.last_conv.detach().unsqueeze(1)).view(batch, len, num_head, dim_qkv) # (batch, len, num_head, dim_qkv)
         if self.is_refresh:
-            self.last_conv = conv_with_past[:,-1,:,:,:]
-        
-        return self.wout(torch.matmul(query.unsqueeze(3), conv_with_past.real).view(batch, len, self.num_head * self.dim_qkv))
+            self.last_conv = self.last_conv.detach() * torch.pow(phazor, len).unsqueeze(0).unsqueeze(-1) + (kv * phazor_progression_inverse.unsqueeze(0).unsqueeze(-1)).sum(1)
+
+        mask_mask = torch.full((len, len), np.inf, device=x.device).triu(1) # (len, len)
+        mask_exp = (torch.arange(len, device=x.device).unsqueeze(1) - torch.arange(len, device=x.device).unsqueeze(0)) + mask_mask # (len, len)
+        mask = torch.pow(amplitude.unsqueeze(-1).unsqueeze(-1), mask_exp.unsqueeze(0)) # (num_head, len, len)
+        qk = torch.matmul(
+            (query * phase_progression.unsqueeze(0)).permute(0,2,1,3), # (batch, num_head, len, dim_qkv)
+            (key * phase_progression_inverse.unsqueeze(0)).permute(0,2,3,1) # (batch, num_head, dim_qkv, len)
+        ).view(batch, num_head, len, len) # (batch, num_head, len, len)
+        qk_mask = qk * mask.unsqueeze(0).expand(batch, num_head, len, len) # (batch, num_head, len, len)
+        inner_chunk = torch.matmul(qk_mask, value.permute(0,2,1,3).to(torch.cfloat)).permute(0,2,1,3) # (batch, len, num_head, dim_qkv)
+
+        out = self.wout((inner_chunk + cross_chunk).real.reshape(batch, len, num_head * dim_qkv))
+        print(mask)
+        return out
 
     def reset_hidden(self):
         self.last_conv = None
