@@ -1,12 +1,12 @@
 services:
-  sconv:
-    build: ./sconv/
-    image: sconv 
-    container_name: "sconv"
+  retnet:
+    build: ./retnet/
+    image: retnet 
+    container_name: "retnet"
     tty: true
     shm_size: 16G
     volumes:
-      - ./sconv:/workspace
+      - ./retnet:/workspace
     deploy:
       resources:
         reservations:

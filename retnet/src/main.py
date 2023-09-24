@@ -1,4 +1,4 @@
-from retnet_conv import RetNetConv 
+from retnet import RetNet
 import pytorch_lightning as pl
 from timm.models.layers import trunc_normal_
 import torchvision.transforms as transforms
@@ -7,7 +7,7 @@ from torchmetrics import MeanMetric
 import torch.nn as nn
 
 class Lang(pl.LightningModule):
-    def __init__(self, model=RetNetConv, depth=32, dropout=0.1, vocab_size=256, dim=256, dim_ff_scale=2, dim_qkv=16, num_head=64, enable_profiling=False):
+    def __init__(self, model=RetNet, depth=32, dropout=0.1, vocab_size=256, dim=256, dim_ff_scale=2, dim_qkv=16, num_head=64, enable_profiling=False):
         super().__init__()
         self.enable_profiling=enable_profiling
         self.model = model(depth, dim, dim_ff_scale, dropout, dim_qkv, num_head)

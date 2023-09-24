@@ -1,7 +1,7 @@
 _target_: main.Lang
-dim: 512
-depth: 64
+dim: 2048
+depth: 32
 dim_ff_scale: 1
-dim_qkv: 64
-num_head: 8
+dim_qkv: 32
+num_head: 64
 dropout: 0.1

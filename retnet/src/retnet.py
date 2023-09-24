@@ -16,8 +16,8 @@ class FFN(nn.Module):
         x = self.dropout(x)
         return x
 
-class RetentionConv(nn.Module):
-    def __init__(self, dim: int, dim_qkv: int, num_head: int):
+class Retention(nn.Module):
+    def __init__(self, dim: int, dim_qkv: int, num_head: int, out_weight=False):
         super().__init__()
         self.dim = dim
         self.dim_qkv = dim_qkv
@@ -30,7 +30,11 @@ class RetentionConv(nn.Module):
         self.wq = nn.Linear(dim, num_head * dim_qkv)
         self.wk = nn.Linear(dim, num_head * dim_qkv)
         self.wv = nn.Linear(dim, num_head * dim_qkv)
-        self.wout = nn.Linear(num_head * dim_qkv, dim)
+        self.out_weight = out_weight
+        if out_weight:
+            self.wout = nn.Linear(num_head * dim_qkv, dim)
+        else:
+            assert dim == dim_qkv * num_head, "Retentin dim_qkv * num_head must be dim if out_weight==False"
         self.is_refresh = True
         self.sigmoid = nn.Sigmoid()
 
@@ -60,7 +64,7 @@ class RetentionConv(nn.Module):
 
         cross_chunk = torch.matmul(query.unsqueeze(3) * (phazor_progression * phazor.unsqueeze(0)).unsqueeze(0).unsqueeze(3), self.last_conv.detach().unsqueeze(1)).view(batch, len, num_head, dim_qkv) # (batch, len, num_head, dim_qkv)
         if self.is_refresh:
-            self.last_conv = self.last_conv.detach() * torch.pow(phazor, len).unsqueeze(0).unsqueeze(-1) + (kv * phazor_progression_inverse.unsqueeze(0).unsqueeze(-1)).sum(1)
+            self.last_conv = self.last_conv.detach() * torch.pow(phazor, len).unsqueeze(0).unsqueeze(-1) + (kv * phazor_progression_inverse.unsqueeze(0).unsqueeze(-1)).sum(1) # (batch, num_head, dim_qkv, dim_qkv)
 
         mask_mask = torch.full((len, len), np.inf, device=x.device).triu(1) # (len, len)
         #mask_mask_2 = torch.ones((len, len), device=x.device).tril()
@@ -73,7 +77,10 @@ class RetentionConv(nn.Module):
         qk_mask = qk * mask.unsqueeze(0).expand(batch, num_head, len, len) # (batch, num_head, len, len)
         inner_chunk = torch.matmul(qk_mask, value.permute(0,2,1,3).to(torch.cfloat)).permute(0,2,1,3) # (batch, len, num_head, dim_qkv)
 
-        out = self.wout((inner_chunk + cross_chunk).real.reshape(batch, len, num_head * dim_qkv))
+        if self.out_weight:
+            out = self.wout((inner_chunk + cross_chunk).real.reshape(batch, len, num_head * dim_qkv))
+        else:
+            out = (inner_chunk + cross_chunk).real.reshape(batch, len, num_head * dim_qkv)
         #print(f'test:{out.isinf().any()}')
         #print(f'test:{out.isnan().any()}')
         #print(amplitude)
@@ -90,10 +97,10 @@ class RetentionConv(nn.Module):
     def set_is_refresh(self, is_refresh):
         self.is_refresh = is_refresh
 
-class RetentionConvBlock(nn.Module):
+class RetNetBlock(nn.Module):
     def __init__(self, dim: int, dim_ff_scale: float, dropout: float, dim_qkv: int, num_head: int):
         super().__init__()
-        self.retention_conv = RetentionConv(dim, dim_qkv, num_head)
+        self.retention_conv = Retention(dim, dim_qkv, num_head)
         self.ffn = FFN(dim, dim_ff_scale, dropout)
         self.layer_norm = nn.LayerNorm(dim)
 
@@ -119,10 +126,10 @@ class RetentionConvBlock(nn.Module):
     def set_is_refresh(self, is_refresh):
         self.retention_conv.set_is_refresh(is_refresh)
 
-class RetNetConv(nn.Module):
+class RetNet(nn.Module):
     def __init__(self, depth: int, dim: int, dim_ff_scale: float, dropout: float, dim_qkv: int, num_head: int):
         super().__init__()
-        self.block_list = nn.ModuleList([RetentionConvBlock(dim, dim_ff_scale, dropout, dim_qkv, num_head) for _ in range(depth)])
+        self.block_list = nn.ModuleList([RetNetBlock(dim, dim_ff_scale, dropout, dim_qkv, num_head) for _ in range(depth)])
 
     def forward(self, x):
         for block in self.block_list:
