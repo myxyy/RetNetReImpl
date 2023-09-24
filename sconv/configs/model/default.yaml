@@ -1,6 +1,6 @@
 _target_: main.Lang
 dim: 512
-depth: 1
+depth: 64
 dim_ff_scale: 1
 dim_qkv: 64
 num_head: 8
