@@ -66,10 +66,10 @@ class Retention(nn.Module):
         if self.is_refresh:
             self.last_conv = self.last_conv.detach() * torch.pow(phazor, len).unsqueeze(0).unsqueeze(-1) + (kv * phazor_progression_inverse.unsqueeze(0).unsqueeze(-1)).sum(1) # (batch, num_head, dim_qkv, dim_qkv)
 
-        mask_mask = torch.full((len, len), np.inf, device=x.device).triu(1) # (len, len)
-        #mask_mask_2 = torch.ones((len, len), device=x.device).tril()
-        mask_exp = (torch.arange(len, device=x.device).unsqueeze(1) - torch.arange(len, device=x.device).unsqueeze(0)) + mask_mask # (len, len)
-        mask = torch.pow(amplitude.unsqueeze(-1).unsqueeze(-1), mask_exp.unsqueeze(0)).detach() # (num_head, len, len) # 勾配計算するとnanになりよくわからず
+        mask_mask = torch.ones((len, len), device=x.device).tril()
+        mask_exp = (torch.arange(len, device=x.device).unsqueeze(1) - torch.arange(len, device=x.device).unsqueeze(0)) * mask_mask # (len, len)
+        mask = torch.pow(amplitude.unsqueeze(-1).unsqueeze(-1), mask_exp.unsqueeze(0)) * mask_mask # (num_head, len, len)
+
         qk = torch.matmul(
             (query * phase_progression.unsqueeze(0)).permute(0,2,1,3), # (batch, num_head, len, dim_qkv)
             (key * phase_progression_inverse.unsqueeze(0)).permute(0,2,3,1) # (batch, num_head, dim_qkv, len)
@@ -83,8 +83,11 @@ class Retention(nn.Module):
             out = (inner_chunk + cross_chunk).real.reshape(batch, len, num_head * dim_qkv)
         #print(f'test:{out.isinf().any()}')
         #print(f'test:{out.isnan().any()}')
+        #print(mask_exp)
         #print(amplitude)
-        #print(mask[7])
+        #print(mask[0])
+        #print(qk[0,0])
+        #print(qk_mask[0,0])
         #print(out[0])
         return out
 
