@@ -1,9 +1,9 @@
 _target_: retnet.RetNet
 _partial_: True
 dim: 2048
-depth: 16
-dim_hidden: 2048
-dim_qkv: 32
-num_head: 64
+depth: 8
+dim_hidden: 4096
+dim_qkv: 128
+num_head: 16
 dropout: 0.1
 vocab_size: 256

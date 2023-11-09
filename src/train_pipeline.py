@@ -47,6 +47,7 @@ def main(cfg):
             for batch in pbar:
                 optimizer.zero_grad()
 
+                model.reset_hidden()
                 text, text_next = batch
                 text = text.to(devices[0])
                 text_next = text_next.to(devices[-1])
