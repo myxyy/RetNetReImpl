@@ -4,30 +4,32 @@ import torch
 import pytorch_lightning as pl
 import numpy as np
 import hydra
+from hydra.utils import instantiate
 
 np.set_printoptions(threshold=np.inf)
 
 @hydra.main(version_base=None, config_path="../configs/", config_name="config")
 def main(cfg):
-    device = 'cuda'
-    model = Lang.load_from_checkpoint(cfg.predict.weight, strict=False)
+    devices = cfg.predict.devices
+    model = instantiate(cfg.model)
+    model = model(devices=devices)
+    model.load_state_dict(torch.load(cfg.predict.weight)['state_dict'])
+    model.eval()
     context_len = cfg.predict.context_len
     length = cfg.predict.max_len
     vocab_size = model.vocab_size
     for p in model.parameters():
         p.requires_grad = False
-    model = model.to(device)
 
     print(f"#parameter:{model.num_parameters}")
 
     def predict(prompt):
-        prompt = torch.from_numpy(np.array([i for i in prompt.encode('utf-8')]).astype(int)).clone().to(device)
+        prompt = torch.from_numpy(np.array([i for i in prompt.encode('utf-8')]).astype(int)).clone().to(devices[0])
         prompt_len = len(prompt)
         prompt = torch.nn.functional.pad(prompt, (0, length-prompt_len), 'constant', 0)
 
         beam_width = 1
         model.randomize_init()
-        model.reset_hidden()
 
         current_len = 0
         start = 0
@@ -49,7 +51,7 @@ def main(cfg):
             #print(f"{current_len} {start}")
             #print(prompt_beam[:,start:start+context_len])
             model.set_is_refresh(current_len % context_len == 0)
-            predict_beam = model(prompt_beam[:,start:start+context_len])
+            predict_beam = model(prompt_beam[:,start:start+context_len]).to(devices[0])
             _, predict_beam_i = predict_beam[:,current_len-1-start,:].reshape(beam_width * vocab_size).topk(beam_width)
             prompt_beam = prompt_beam[torch.div(predict_beam_i, vocab_size, rounding_mode='floor')]
             prompt_beam[:,current_len] = predict_beam_i % vocab_size 

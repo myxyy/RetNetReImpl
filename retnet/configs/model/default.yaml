@@ -1,7 +1,0 @@
-_target_: main.Lang
-dim: 2048
-depth: 32
-dim_ff_scale: 1
-dim_qkv: 32
-num_head: 64
-dropout: 0.1

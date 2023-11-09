@@ -6,3 +6,4 @@ lightning_logs*
 *.ckpt
 log*
 outputs/
+poetry.lock

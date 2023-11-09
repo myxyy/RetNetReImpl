@@ -1,4 +1,5 @@
 defaults:
   - model: default.yaml
   - train: default.yaml
+  - train_pipeline: default.yaml
   - predict: default.yaml

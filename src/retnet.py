@@ -3,10 +3,10 @@ import torch.nn as nn
 import numpy as np
 
 class FFN(nn.Module):
-    def __init__(self, dim: int, dim_ff_scale: float, dropout: float):
+    def __init__(self, dim: int, dim_hidden: float, dropout: float):
         super().__init__()
-        self.linear_1 = nn.Linear(dim, dim*dim_ff_scale, bias=True)
-        self.linear_2 = nn.Linear(dim*dim_ff_scale, dim, bias=True)
+        self.linear_1 = nn.Linear(dim, dim_hidden, bias=True)
+        self.linear_2 = nn.Linear(dim_hidden, dim, bias=True)
         self.act = nn.SiLU()
         self.dropout = nn.Dropout(dropout)
     def forward(self, x):
@@ -42,6 +42,7 @@ class Retention(nn.Module):
     def forward(self, x):
         batch = x.shape[0]
         len = x.shape[1]
+        dtype = x.dtype
         num_head = self.num_head
         dim_qkv = self.dim_qkv
 
@@ -75,7 +76,7 @@ class Retention(nn.Module):
             (key * phase_progression_inverse.unsqueeze(0)).permute(0,2,3,1) # (batch, num_head, dim_qkv, len)
         ).view(batch, num_head, len, len) # (batch, num_head, len, len)
         qk_mask = qk * mask.unsqueeze(0).expand(batch, num_head, len, len) # (batch, num_head, len, len)
-        inner_chunk = torch.matmul(qk_mask, value.permute(0,2,1,3).to(torch.cfloat)).permute(0,2,1,3) # (batch, len, num_head, dim_qkv)
+        inner_chunk = torch.matmul(qk_mask.to(torch.cfloat), value.permute(0,2,1,3).to(torch.cfloat)).permute(0,2,1,3) # (batch, len, num_head, dim_qkv)
 
         if self.out_weight:
             out = self.wout((inner_chunk + cross_chunk).real.reshape(batch, len, num_head * dim_qkv))
@@ -89,28 +90,25 @@ class Retention(nn.Module):
         #print(qk[0,0])
         #print(qk_mask[0,0])
         #print(out[0])
-        return out
+        return out.to(dtype)
 
     def reset_hidden(self):
         self.last_conv = None
-
-    def randomize_init(self):
-        self.last_conv_init.value = torch.randn(self.dim, dtype=torch.cfloat)
 
     def set_is_refresh(self, is_refresh):
         self.is_refresh = is_refresh
 
 class RetNetBlock(nn.Module):
-    def __init__(self, dim: int, dim_ff_scale: float, dropout: float, dim_qkv: int, num_head: int):
+    def __init__(self, dim: int, dim_hidden: float, dropout: float, dim_qkv: int, num_head: int):
         super().__init__()
-        self.retention_conv = Retention(dim, dim_qkv, num_head)
-        self.ffn = FFN(dim, dim_ff_scale, dropout)
-        self.layer_norm = nn.LayerNorm(dim)
+        self.retention = Retention(dim, dim_qkv, num_head)
+        self.ffn = FFN(dim, dim_hidden, dropout)
+        self.layer_norm = nn.LayerNorm(dim, elementwise_affine=False)
 
     def forward(self, x):
         x_ = x
         x = self.layer_norm(x)
-        x = self.retention_conv(x)
+        x = self.retention(x)
         x = x + x_
 
         x_ = x
@@ -121,33 +119,51 @@ class RetNetBlock(nn.Module):
         return x
 
     def reset_hidden(self):
-        self.retention_conv.reset_hidden()
-
-    def randomize_init(self):
-        self.retention_conv.randomize_init()
+        self.retention.reset_hidden()
 
     def set_is_refresh(self, is_refresh):
-        self.retention_conv.set_is_refresh(is_refresh)
+        self.retention.set_is_refresh(is_refresh)
 
 class RetNet(nn.Module):
-    def __init__(self, depth: int, dim: int, dim_ff_scale: float, dropout: float, dim_qkv: int, num_head: int):
+    def __init__(self, depth: int, dim: int, dim_hidden: float, dropout: float, dim_qkv: int, num_head: int, vocab_size: int, devices):
         super().__init__()
-        self.block_list = nn.ModuleList([RetNetBlock(dim, dim_ff_scale, dropout, dim_qkv, num_head) for _ in range(depth)])
+        self.devices = devices
+        self.token_in = nn.Linear(vocab_size, dim, device=devices[0])
+        self.token_out = nn.Linear(dim, vocab_size, device=devices[-1])
+        self.block_list = nn.ModuleList([RetNetBlock(dim, dim_hidden, dropout, dim_qkv, num_head) for _ in range(depth)])
+        for i, block in enumerate(self.block_list):
+            block.to(devices[self.device_index(i)])
+
+    def device_index(self, i):
+        return (len(self.devices) * i) // len(self.block_list)
 
     def forward(self, x):
-        for block in self.block_list:
+        x = self.token_in(x)
+        for i, block in enumerate(self.block_list):
+            if i > 0 and self.device_index(i) != self.device_index(i-1):
+                x = x.to(self.devices[self.device_index(i)])
             x = block(x)
+        x = self.token_out(x)
         return x 
 
     def reset_hidden(self):
         for block in self.block_list:
             block.reset_hidden()
 
-    def randomize_init(self):
-        for block in self.block_list:
-            block.randomize_init()
-
     def set_is_refresh(self, is_refresh):
         for block in self.block_list:
             block.set_is_refresh(is_refresh)
     
+    def module_list(self):
+        blistlist = []
+        for _ in self.devices:
+            blistlist.append([])
+        for i, block in enumerate(self.block_list):
+            blistlist[self.device_index(i)].append(block)
+        mlist = []
+        for blist in blistlist:
+            mlist.append(nn.Sequential(*blist))
+        mlist[0] = nn.Sequential(self.token_in, mlist[0])
+        mlist[-1] = nn.Sequential(mlist[-1], self.token_out)
+        return mlist
+        
