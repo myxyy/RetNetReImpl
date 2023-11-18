@@ -1,5 +1,5 @@
-length: 2048
-batch_size: 8
+length: 512
+batch_size: 16
 max_epochs: 100
 text: "text/natsume.txt"
 weight: "weight/weight.ckpt"

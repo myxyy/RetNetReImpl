@@ -38,7 +38,7 @@ def main(cfg):
     model_pipe = nn.Sequential(*model.module_list())
     model_pipe = Pipe(model_pipe, chunks=cfg.train_pipeline.batch_size)
     model_pipe.train()
-    optimizer = torch.optim.AdamW(model.parameters(), lr=0.0001)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=0.00001)
     def save():
         torch.save({'state_dict': model.state_dict(), 'steps': steps, 'epochs': epochs}, cfg.train_pipeline.weight)
     try:
