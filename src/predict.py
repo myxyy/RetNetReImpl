@@ -18,6 +18,7 @@ def main(cfg):
     context_len = cfg.predict.context_len
     length = cfg.predict.max_len
     vocab_size = 256
+    dtype = model.dtype
     for p in model.parameters():
         p.requires_grad = False
 
@@ -37,14 +38,14 @@ def main(cfg):
         model.set_is_refresh(True)
         while prompt_len - current_len > context_len:
             x = prompt[current_len:current_len+context_len].view(1,context_len)
-            x = nn.functional.one_hot(x.long(), vocab_size).float()
+            x = nn.functional.one_hot(x.long(), vocab_size).to(dtype)
             model(x)
             current_len += context_len
             start += context_len
         model.set_is_refresh(False)
 
         x = prompt[current_len:current_len+context_len].view(1,context_len)
-        x = nn.functional.one_hot(x.long(), vocab_size).float()
+        x = nn.functional.one_hot(x.long(), vocab_size).to(dtype)
         predict_init = model(x)
         _, predict_init_i = predict_init.view(context_len, vocab_size)[prompt_len - current_len -1].topk(beam_width)
         prompt_beam = prompt.repeat(beam_width, 1)
@@ -57,7 +58,7 @@ def main(cfg):
             #print(prompt_beam[:,start:start+context_len])
             model.set_is_refresh(current_len % context_len == 0)
             x = prompt_beam[:,start:start+context_len]
-            x = nn.functional.one_hot(x.long(), vocab_size).float()
+            x = nn.functional.one_hot(x.long(), vocab_size).to(dtype)
             predict_beam = model(x).to(devices[0])
             _, predict_beam_i = predict_beam[:,current_len-1-start,:].reshape(beam_width * vocab_size).topk(beam_width)
             prompt_beam = prompt_beam[torch.div(predict_beam_i, vocab_size, rounding_mode='floor')]
