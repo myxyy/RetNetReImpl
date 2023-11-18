@@ -3,17 +3,15 @@ import torch.nn as nn
 import numpy as np
 
 class FFN(nn.Module):
-    def __init__(self, dim: int, dim_hidden: float, dropout: float, dtype):
+    def __init__(self, dim: int, dim_hidden: float, dtype):
         super().__init__()
-        self.linear_1 = nn.Linear(dim, dim_hidden, bias=True, dtype=dtype)
-        self.linear_2 = nn.Linear(dim_hidden, dim, bias=True, dtype=dtype)
+        self.linear_1 = nn.Linear(dim, dim_hidden, dtype=dtype)
+        self.linear_2 = nn.Linear(dim_hidden, dim, dtype=dtype)
         self.act = nn.SiLU()
-        self.dropout = nn.Dropout(dropout)
     def forward(self, x):
         x = self.linear_1(x)
         x = self.act(x)
         x = self.linear_2(x)
-        x = self.dropout(x)
         return x
 
 class Retention(nn.Module):
@@ -30,6 +28,7 @@ class Retention(nn.Module):
         self.wq = nn.Linear(dim, num_head * dim_qkv, dtype=dtype)
         self.wk = nn.Linear(dim, num_head * dim_qkv, dtype=dtype)
         self.wv = nn.Linear(dim, num_head * dim_qkv, dtype=dtype)
+        self.act = nn.SiLU()
         self.out_weight = out_weight
         if out_weight:
             self.wout = nn.Linear(num_head * dim_qkv, dim, dtype=dtype)
@@ -79,9 +78,9 @@ class Retention(nn.Module):
         inner_chunk = torch.matmul(qk_mask.to(torch.cfloat), value.permute(0,2,1,3).to(torch.cfloat)).permute(0,2,1,3) # (batch, len, num_head, dim_qkv)
 
         if self.out_weight:
-            out = self.wout((inner_chunk + cross_chunk).real.reshape(batch, len, num_head * dim_qkv))
+            out = self.wout(self.act((inner_chunk + cross_chunk).real).to(dtype).reshape(batch, len, num_head * dim_qkv))
         else:
-            out = (inner_chunk + cross_chunk).real.reshape(batch, len, num_head * dim_qkv)
+            out = (inner_chunk + cross_chunk).real.to(dtype).reshape(batch, len, num_head * dim_qkv)
         #print(f'test:{out.isinf().any()}')
         #print(f'test:{out.isnan().any()}')
         #print(mask_exp)
@@ -90,7 +89,7 @@ class Retention(nn.Module):
         #print(qk[0,0])
         #print(qk_mask[0,0])
         #print(out[0])
-        return out.to(dtype)
+        return out
 
     def reset_hidden(self):
         self.last_conv = None
@@ -101,19 +100,22 @@ class Retention(nn.Module):
 class RetNetBlock(nn.Module):
     def __init__(self, dim: int, dim_hidden: float, dropout: float, dim_qkv: int, num_head: int, dtype):
         super().__init__()
-        self.retention = Retention(dim, dim_qkv, num_head, dtype)
-        self.ffn = FFN(dim, dim_hidden, dropout, dtype)
+        self.retention = Retention(dim, dim_qkv, num_head, dtype, out_weight=True)
+        self.ffn = FFN(dim, dim_hidden, dtype)
         self.layer_norm = nn.LayerNorm(dim, elementwise_affine=False)
+        self.dropout = nn.Dropout(dropout)
 
     def forward(self, x):
         x_ = x
         x = self.layer_norm(x)
         x = self.retention(x)
+        x = self.dropout(x)
         x = x + x_
 
         x_ = x
         x = self.layer_norm(x)
         x = self.ffn(x)
+        x = self.dropout(x)
         x = x + x_
 
         return x
