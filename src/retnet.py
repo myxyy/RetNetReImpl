@@ -3,10 +3,10 @@ import torch.nn as nn
 import numpy as np
 
 class FFN(nn.Module):
-    def __init__(self, dim: int, dim_hidden: float, dropout: float):
+    def __init__(self, dim: int, dim_hidden: float, dropout: float, dtype):
         super().__init__()
-        self.linear_1 = nn.Linear(dim, dim_hidden, bias=True)
-        self.linear_2 = nn.Linear(dim_hidden, dim, bias=True)
+        self.linear_1 = nn.Linear(dim, dim_hidden, bias=True, dtype=dtype)
+        self.linear_2 = nn.Linear(dim_hidden, dim, bias=True, dtype=dtype)
         self.act = nn.SiLU()
         self.dropout = nn.Dropout(dropout)
     def forward(self, x):
@@ -17,7 +17,7 @@ class FFN(nn.Module):
         return x
 
 class Retention(nn.Module):
-    def __init__(self, dim: int, dim_qkv: int, num_head: int, out_weight=False):
+    def __init__(self, dim: int, dim_qkv: int, num_head: int, dtype, out_weight=False):
         super().__init__()
         self.dim = dim
         self.dim_qkv = dim_qkv
@@ -27,12 +27,12 @@ class Retention(nn.Module):
         #self.phazor_init = nn.Parameter(torch.randn((num_head, dim_qkv, dim_qkv), dtype=torch.cfloat)) # log(-log(gamma))
         self.last_conv = None # (batch, num_head, dim_qkv, dim_qkv)
         self.last_conv_init = nn.Parameter(torch.randn((num_head, dim_qkv, dim_qkv), dtype=torch.cfloat)) # (num_head, dim_qkv, dim_qkv)
-        self.wq = nn.Linear(dim, num_head * dim_qkv)
-        self.wk = nn.Linear(dim, num_head * dim_qkv)
-        self.wv = nn.Linear(dim, num_head * dim_qkv)
+        self.wq = nn.Linear(dim, num_head * dim_qkv, dtype=dtype)
+        self.wk = nn.Linear(dim, num_head * dim_qkv, dtype=dtype)
+        self.wv = nn.Linear(dim, num_head * dim_qkv, dtype=dtype)
         self.out_weight = out_weight
         if out_weight:
-            self.wout = nn.Linear(num_head * dim_qkv, dim)
+            self.wout = nn.Linear(num_head * dim_qkv, dim, dtype=dtype)
         else:
             assert dim == dim_qkv * num_head, "Retentin dim_qkv * num_head must be dim if out_weight==False"
         self.is_refresh = True
@@ -99,10 +99,10 @@ class Retention(nn.Module):
         self.is_refresh = is_refresh
 
 class RetNetBlock(nn.Module):
-    def __init__(self, dim: int, dim_hidden: float, dropout: float, dim_qkv: int, num_head: int):
+    def __init__(self, dim: int, dim_hidden: float, dropout: float, dim_qkv: int, num_head: int, dtype):
         super().__init__()
-        self.retention = Retention(dim, dim_qkv, num_head)
-        self.ffn = FFN(dim, dim_hidden, dropout)
+        self.retention = Retention(dim, dim_qkv, num_head, dtype)
+        self.ffn = FFN(dim, dim_hidden, dropout, dtype)
         self.layer_norm = nn.LayerNorm(dim, elementwise_affine=False)
 
     def forward(self, x):
@@ -125,12 +125,13 @@ class RetNetBlock(nn.Module):
         self.retention.set_is_refresh(is_refresh)
 
 class RetNet(nn.Module):
-    def __init__(self, depth: int, dim: int, dim_hidden: float, dropout: float, dim_qkv: int, num_head: int, vocab_size: int, devices):
+    def __init__(self, depth: int, dim: int, dim_hidden: float, dropout: float, dim_qkv: int, num_head: int, vocab_size: int, devices, dtype=torch.bfloat16):
         super().__init__()
         self.devices = devices
-        self.token_in = nn.Linear(vocab_size, dim, device=devices[0])
-        self.token_out = nn.Linear(dim, vocab_size, device=devices[-1])
-        self.block_list = nn.ModuleList([RetNetBlock(dim, dim_hidden, dropout, dim_qkv, num_head) for _ in range(depth)])
+        self.dtype = dtype
+        self.token_in = nn.Linear(vocab_size, dim, device=devices[0], dtype=dtype)
+        self.token_out = nn.Linear(dim, vocab_size, device=devices[-1], dtype=dtype)
+        self.block_list = nn.ModuleList([RetNetBlock(dim, dim_hidden, dropout, dim_qkv, num_head, dtype) for _ in range(depth)])
         for i, block in enumerate(self.block_list):
             block.to(devices[self.device_index(i)])
 

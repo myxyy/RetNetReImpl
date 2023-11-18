@@ -18,12 +18,12 @@ def main(cfg):
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=cfg.train_pipeline.batch_size, shuffle=False, num_workers=os.cpu_count(), pin_memory=True, drop_last=True)
     ckpt_path = cfg.train_pipeline.weight
     ckpt_path = ckpt_path if os.path.isfile(ckpt_path) else None
-    dtype = torch.bfloat16
     #trainer = pl.Trainer(devices=1, accelerator='gpu', max_epochs=cfg.train.max_epochs, log_every_n_steps=cfg.train.log_every_n_steps, logger=[TensorBoardLogger('./')])
     model = instantiate(cfg.model)
     devices = cfg.train_pipeline.devices
     model = model(devices=devices)
-    model = model.to(dtype)
+    #model = model.to(dtype)
+    dtype = model.dtype
     epochs = 0
     steps = 0
     if ckpt_path is not None:
